@@ -20,7 +20,8 @@
                                 :releases false}
                   "releases"  {:url "s3p://thinktopic.jars/releases/"
                                :no-auth true
-                               :snapshots false}
+                               :snapshots false
+                               :sign-releases false}
                   "my.datomic.com" {:url      "https://my.datomic.com/repo"
                                     :username :env/DATOMIC_USERNAME
                                     :password :env/DATOMIC_PASSWORD}})
