@@ -1,0 +1,12 @@
+language: clojure
+dist: trusty
+jdk:
+  - oraclejdk8
+before_install:
+  - export PATH=$PATH:$PWD
+  - export VAULT_ADDR=https://thinktopic.com:8200
+  - source ./scripts/install.sh
+  - lein with-profile test test
+cache:
+  directories:
+  - "$HOME/.m2"
