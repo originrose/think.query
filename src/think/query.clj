@@ -217,6 +217,7 @@ potentially more criteria."
     (let [v (cond
               (= '* k) (vec data)
               (keyword? k) [[k (get data k)]]
+              (string? k) [[k (get data k)]]
               (vector? k) (into {} (mapcat #(do-hydrate data %1) k))
               (map? k) [k (into {} (for [[child-key child-hydration] k]
                                      [child-key (do-hydrate (get data child-key) child-hydration)]))])]
