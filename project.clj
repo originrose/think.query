@@ -1,7 +1,8 @@
 (defproject thinktopic/think.query "0.1.1-SNAPSHOT"
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
-  :dependencies [[org.clojure/clojure "1.8.0"]]
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [com.amazonaws/aws-java-sdk-s3 "1.11.98"]]
 
   :profiles {:test {:dependencies [[com.datomic/datomic-pro "0.9.5530"]]}}
 
