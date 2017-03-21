@@ -17,5 +17,3 @@ export DATOMIC_PASSWORD=$(vault read -field=DATOMIC_PASSWORD $license_path)
 
 source scripts/core-access
 lein with-profile test deps
-
-cat /home/travis/build.sh
