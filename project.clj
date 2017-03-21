@@ -2,11 +2,13 @@
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.apache.httpcomponents/httpclient "4.5.3"]]
+                 ;[org.apache.httpcomponents/httpclient "4.5.3"]
+                 ;[s3-wagon-private "1.3.0" :exclusions [commons-logging]]
+                 ]
 
   :profiles {:test {:dependencies [[com.datomic/datomic-pro "0.9.5530"]]}}
 
-  :plugins [[s3-wagon-private "1.3.0"]]
+  :plugins [[s3-wagon-private "1.3.0" :exclusions [commons-logging]]]
   :release-tasks [["vcs" "assert-committed"]
                   ["change" "version" "leiningen.release/bump-version" "release"]
                   ["vcs" "commit"]
