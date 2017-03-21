@@ -23,4 +23,6 @@
                   ["deploy"]
                   ["change" "version" "leiningen.release/bump-version"]
                   ["vcs" "commit"]
-                  ["vcs" "push"]])
+                  ["vcs" "push"]]
+
+  :aliases {"release" ["with-profile" "release" "release" ]})
