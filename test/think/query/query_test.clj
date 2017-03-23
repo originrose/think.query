@@ -83,6 +83,17 @@
     (let [result (query-user [:select :*])]
       (is (= (count test-data/test-users) (count result))))))
 
+(defmethod q/compute-operator :email-first-letter
+  [_ item]
+  (first (:user/email item)))
+
+(deftest compute-operator-test
+  (->> (query-user [:compute [:realize [:select {:user/first-name "Bob"}]] :email-first-letter])
+       (first)
+       (:email-first-letter)
+       (= \b)
+       (is)))
+
 (defmethod q/transform-operator :email-list
   [_ data args]
   (map :user/email data))
