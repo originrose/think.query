@@ -168,7 +168,9 @@ potentially more criteria."
 (defn- maybe-query
   "Test if the multi-method implementation is there, otherwise just pass the data through."
   [indexes q]
-  (if (and (sequential? q) (keyword? (first q)) (get-method query-operator ((.dispatchFn query-operator) indexes q)))
+  (if (and (sequential? q)
+           (keyword? (first q))
+           (get-method query-operator ((.dispatchFn ^clojure.lang.MultiFn query-operator) indexes q)))
     (query-operator indexes q)
     q))
 
@@ -263,7 +265,7 @@ potentially more criteria."
   Each element is only drawn once; order is preserved between elements of the
   same tuple. this is a bit like a randomized clojure.core/interleave, except
   that it will exhaust all seqs rather than stop at the first empty one."
-  [rgen mixes]
+  [^java.util.Random rgen mixes]
   (if (not-empty mixes)
     (let [v (.nextDouble rgen)
           mix (first (filter #(> (first %) v) mixes))
