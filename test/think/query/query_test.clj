@@ -207,6 +207,16 @@
          (every? #(= % "Bob"))
          (is))))
 
+(deftest filter-not-equal-test
+  (testing "An example of using filter on a single attribute."
+    (->> (query-user (--> [:select :*]
+                          [:realize]
+                          [:filter [[:user/first-name] :not= "Bob"]]
+                          [:hydrate [:user/first-name]]))
+         (map :user/first-name)
+         (every? #(not= % "Bob"))
+         (is))))
+
 (deftest filter-contains-test
   (testing "An example of using filter on a single attribute."
     (->> (query-user (--> [:select :*]

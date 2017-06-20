@@ -354,6 +354,7 @@ potentially more criteria."
         :<  #(< (get-in % path) v)
         :>  #(> (get-in % path) v)
         :=  #(= (get-in % path) v)
+        :not=  #(not= (get-in % path) v)
         :>= #(>= (get-in % path) v)
         :<= #(<= (get-in % path) v)
         :contains #(some (set (get-in % path)) v)))))
