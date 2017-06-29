@@ -326,7 +326,7 @@ potentially more criteria."
       (assoc result c-type (apply compute-operator c-type result args)))))
 
 (defmulti transform-operator
-  (fn [op data args]
+  (fn [op data & args]
     op))
 
 ;; Given an offset and a limit, drop the offset and take the limit from the sequence of results.
