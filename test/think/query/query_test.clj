@@ -95,7 +95,7 @@
        (is)))
 
 (defmethod q/transform-operator :email-list
-  [_ data args]
+  [_ data & args]
   (map :user/email data))
 
 (deftest email-list-transform
@@ -116,7 +116,7 @@
 
 
 (defmethod q/transform-operator :count
-  [_ data args]
+  [_ data & args]
   (count data))
 
 (deftest transform-let-count
@@ -126,7 +126,7 @@
     (is (= 2 result))))
 
 (defmethod q/transform-operator :identity
-  [_ data {:as args}]
+  [_ data & {:as args}]
   {:data data
    :args args} )
 
