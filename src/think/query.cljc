@@ -317,12 +317,12 @@ potentially more criteria."
       (assoc result c-type (apply compute-operator c-type result args)))))
 
 (defmulti transform-operator
-  (fn [op data args]
+  (fn [op data & args]
     op))
 
 ;; Given an offset and a limit, drop the offset and take the limit from the sequence of results.
 (defmethod transform-operator :paginate
-  [_ data {:keys [offset limit]}]
+  [_ data & {:keys [offset limit]}]
   (as->
     (if offset (drop offset data) data) data
     (if limit (take limit data) data)))
@@ -330,7 +330,7 @@ potentially more criteria."
 (defmethod query-operator :transform
   [indexes [_ q op & args]]
   (let [q-result (query-operator indexes q)]
-    (transform-operator op q-result (map (partial maybe-query indexes) args))))
+    (apply transform-operator op q-result (map (partial maybe-query indexes) args))))
 
 (defn predicate->fn
   "e.g. [:and [[:retail-value] :> 10]
@@ -345,6 +345,7 @@ potentially more criteria."
         :<  #(< (get-in % path) v)
         :>  #(> (get-in % path) v)
         :=  #(= (get-in % path) v)
+        :not=  #(not= (get-in % path) v)
         :>= #(>= (get-in % path) v)
         :<= #(<= (get-in % path) v)
         :contains #(some (set (get-in % path)) v)))))
