@@ -2,6 +2,7 @@
   (:require [clojure.test :refer :all]
             [clojure.set :as set]
             [think.query :as q :refer [-->]]
+            [think.query.datomic :as query.datomic]
             [think.query.test-util :as test-util]
             [think.query.test-data :as test-data]))
 
@@ -30,7 +31,7 @@
 (defn query-user
   [q & {:keys [:use-datomic]
         :or {:use-datomic false}}]
-  (let [primary-user-index (q/default-datomic-index (test-util/db) :resource.type/user)
+  (let [primary-user-index (query.datomic/default-datomic-index (test-util/db) :resource.type/user)
         attribute-index-fn (partial index-by-attribute primary-user-index)]
     (q/query :resource.type/user (merge {:primary-index primary-user-index
                                          :user/email (attribute-index-fn :user/email)
@@ -95,7 +96,7 @@
        (is)))
 
 (defmethod q/transform-operator :email-list
-  [_ data args]
+  [_ data & args]
   (map :user/email data))
 
 (deftest email-list-transform
@@ -116,7 +117,7 @@
 
 
 (defmethod q/transform-operator :count
-  [_ data args]
+  [_ data & args]
   (count data))
 
 (deftest transform-let-count
@@ -126,9 +127,9 @@
     (is (= 2 result))))
 
 (defmethod q/transform-operator :identity
-  [_ data {:as args}]
+  [_ data & {:as args}]
   {:data data
-   :args args} )
+   :args args})
 
 (deftest transform-let-identity
   (let [result (query-user '[:let [a [:realize [:select :*]]
@@ -205,6 +206,16 @@
                           [:hydrate [:user/first-name]]))
          (map :user/first-name)
          (every? #(= % "Bob"))
+         (is))))
+
+(deftest filter-not-equal-test
+  (testing "An example of using filter on a single attribute."
+    (->> (query-user (--> [:select :*]
+                          [:realize]
+                          [:filter [[:user/first-name] :not= "Bob"]]
+                          [:hydrate [:user/first-name]]))
+         (map :user/first-name)
+         (every? #(not= % "Bob"))
          (is))))
 
 (deftest filter-contains-test
