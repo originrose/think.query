@@ -32,6 +32,23 @@ or :resource.type/brand) and that these types have valid resource id's"}
           ops))
 
 
+(defn <--
+  "Inverse of -->"
+  [q]
+  (loop [q q
+         p []]
+    (let [op (first q)
+          data (second q)
+          last? (not (and (vector? data) (pos? (count data)) (keyword? (first data))))
+          pipeline (conj p
+                         (if last?
+                           q
+                           (into [] (concat [op] (drop 2 q)))))]
+      (if-not last?
+        (recur data pipeline)
+        (reverse pipeline)))))
+
+
 (defn update-operator
   "Update one or more operators in a query q of type op by calling the function
   f on the current operator and replacing it with the result.
