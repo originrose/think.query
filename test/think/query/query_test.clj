@@ -1,7 +1,8 @@
 (ns think.query.query-test
   (:require [clojure.test :refer :all]
             [clojure.set :as set]
-            [think.query :as q :refer [-->]]
+            [think.query :as q :refer [--> <--]]
+            [think.query.datomic :as query.datomic]
             [think.query.test-util :as test-util]
             [think.query.test-data :as test-data]))
 
@@ -30,7 +31,7 @@
 (defn query-user
   [q & {:keys [:use-datomic]
         :or {:use-datomic false}}]
-  (let [primary-user-index (q/default-datomic-index (test-util/db) :resource.type/user)
+  (let [primary-user-index (query.datomic/default-datomic-index (test-util/db) :resource.type/user)
         attribute-index-fn (partial index-by-attribute primary-user-index)]
     (q/query :resource.type/user (merge {:primary-index primary-user-index
                                          :user/email (attribute-index-fn :user/email)
@@ -128,7 +129,7 @@
 (defmethod q/transform-operator :identity
   [_ data & {:as args}]
   {:data data
-   :args args} )
+   :args args})
 
 (deftest transform-let-identity
   (let [result (query-user '[:let [a [:realize [:select :*]]
@@ -274,3 +275,13 @@
         (first)
         (= "Bob")
         (is))))
+
+(deftest arrow-both-ways
+  (let [q [[:select :*]
+           [:realize]
+           [:filter [:or [[:user/first-name] :contains "Bo"]
+                     [[:user/first-name] :contains "Al"]]]
+           [:hydrate [:user/first-name]]]
+        threaded (reduce --> q)
+        dethreaded (vec (<-- threaded))]
+    (is (= q dethreaded))))

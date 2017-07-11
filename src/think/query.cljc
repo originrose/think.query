@@ -11,7 +11,9 @@ or :resource.type/brand) and that these types have valid resource id's"}
     think.query
   (:require
    [clojure.set :as set]
-   [clojure.walk :as walk]))
+   [clojure.walk :as walk]
+   #?(:clj  [think.query.datomic :as datomic]
+      :cljs cljsjs.chance)))
 
 (defn- insert-at
   [coll item n]
@@ -28,6 +30,23 @@ or :resource.type/brand) and that these types have valid resource id's"}
             (insert-at op q 1))
           init
           ops))
+
+
+(defn <--
+  "Inverse of -->"
+  [q]
+  (loop [q q
+         p []]
+    (let [op (first q)
+          data (second q)
+          last? (not (and (vector? data) (pos? (count data)) (keyword? (first data))))
+          pipeline (conj p
+                         (if last?
+                           q
+                           (into [] (concat [op] (drop 2 q)))))]
+      (if-not last?
+        (recur data pipeline)
+        (reverse pipeline)))))
 
 
 (defn update-operator
@@ -66,39 +85,12 @@ or :resource.type/brand) and that these types have valid resource id's"}
                        (concat [:and cur-tags] tags)))]
         [:select (assoc selection skey new-tags)]))))
 
-
-(defn default-datomic-index
-  "Provides the default datomic index based on resource type"
-  [db resource-type]
-  (require 'datomic.api)
-  (->> resource-type
-       ((resolve 'datomic.api/q) '[:find ?resource-id (pull ?e [*])
-              :in $ ?resource-type
-              :where
-              [?e :resource/type ?resource-type]
-              [?e :resource/id ?resource-id]]
-            db)
-       (into {})))
-
-;; maybe not use pull api?
-(defn datomic-query
-  "Use the selection criteria to query datomic directly.  Used when none of the selection
-keys map to in-memory indexes."
-  [db selection data]
-  (require 'datomic.api)
-  (->> (map (fn [[k v]] ['?e k v]) selection)
-       (concat [:find '[(pull ?e [:resource/id]) ...] :where])
-       (vec)
-       ((fn [x] ((resolve 'datomic.api/q) x db)))
-       (map :resource/id)
-       (into #{})
-       (set/intersection data)))
-
 (defn- filter-by-selection
   "Linear scan over data for a given selection"
   [{:keys [:default-index :primary-index] :as indexes} selection data]
   (if (= default-index :datomic)
-    (datomic-query (:db indexes) selection data)
+    (do
+      #?(:clj (datomic/datomic-query (:db indexes) selection data)))
     (let [[index-key selection-match] (first selection)
           path (if (sequential? index-key) index-key [index-key])]
       (->> data
@@ -256,6 +248,20 @@ potentially more criteria."
                        [[] 0.0]
                        mixes))))))
 
+(defn- random-generator
+  "In java creates an instance of Random and in js create a Chance.js instance."
+  [seed]
+  #?(:clj  (java.util.Random. seed)
+     :cljs (js/Chance seed)))
+
+
+(defn next-double
+  "Takes a random-generator and returns the next double."
+  [rgen]
+  #?(:clj  (.nextDouble rgen)
+     :cljs (.floating   rgen #js {:min 0
+                                  :max 0})))
+
 (defn mix-sampler*
   "Given a random number generator and a seq of tuples [weight elems], where
   the weights have been normalized to cumulatively reach 1.0 (as per
@@ -265,7 +271,9 @@ potentially more criteria."
   Each element is only drawn once; order is preserved between elements of the
   same tuple. this is a bit like a randomized clojure.core/interleave, except
   that it will exhaust all seqs rather than stop at the first empty one."
-  [^java.util.Random rgen mixes]
+  [#?(:clj ^java.util.Random rgen
+      :cljs rgen)
+   mixes]
   (if (not-empty mixes)
     (let [v (.nextDouble rgen)
           mix (first (filter #(> (first %) v) mixes))
@@ -281,7 +289,7 @@ potentially more criteria."
 (defn mix-sampler
   "Calls mix-sampler* with fixed random seed so results are deterministic."
   [mixes]
-  (mix-sampler* (java.util.Random. 0) (reweight-mixes mixes)))
+  (mix-sampler* (random-generator 0) (reweight-mixes mixes)))
 
 ;; Weighted mixture operator
 ;; [:mix [[0.2 <query>]
