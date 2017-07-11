@@ -1,4 +1,7 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> lein-release plugin: bumped version from 0.1.4 to 0.1.5-SNAPSHOT for next development cycle
 (defproject thinktopic/think.query "0.1.5-SNAPSHOT"
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
