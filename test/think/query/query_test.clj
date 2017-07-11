@@ -1,7 +1,7 @@
 (ns think.query.query-test
   (:require [clojure.test :refer :all]
             [clojure.set :as set]
-            [think.query :as q :refer [-->]]
+            [think.query :as q :refer [--> <--]]
             [think.query.datomic :as query.datomic]
             [think.query.test-util :as test-util]
             [think.query.test-data :as test-data]))
@@ -275,3 +275,13 @@
         (first)
         (= "Bob")
         (is))))
+
+(deftest arrow-both-ways
+  (let [q [[:select :*]
+           [:realize]
+           [:filter [:or [[:user/first-name] :contains "Bo"]
+                     [[:user/first-name] :contains "Al"]]]
+           [:hydrate [:user/first-name]]]
+        threaded (reduce --> q)
+        dethreaded (vec (<-- threaded))]
+    (is (= q dethreaded))))
