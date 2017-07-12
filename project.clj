@@ -1,4 +1,4 @@
-(defproject thinktopic/think.query "0.1.5"
+(defproject thinktopic/think.query "0.1.5-SNAPSHOT"
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
   :dependencies [[org.clojure/clojure "1.8.0"]

@@ -13,7 +13,7 @@ or :resource.type/brand) and that these types have valid resource id's"}
    [clojure.set :as set]
    [clojure.walk :as walk]
    [clojure.test.check.random :as rand]
-   [think.query.datomic :as datomic]))
+   #?(:clj  [think.query.datomic :as datomic])))
 
 
 (defn- insert-at
