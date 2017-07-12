@@ -2,7 +2,7 @@
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 ]
+                 [cljsjs/chance "0.7.3-0"]]
 
   :plugins [[s3-wagon-private "1.3.0"]
             [cljsjs/chance "0.7.3-0"]]
