@@ -12,8 +12,9 @@ or :resource.type/brand) and that these types have valid resource id's"}
   (:require
    [clojure.set :as set]
    [clojure.walk :as walk]
-   #?(:clj  [think.query.datomic :as datomic]
-      :cljs cljsjs.chance)))
+   [clojure.test.check.random :as rand]
+   #?(:clj  [think.query.datomic :as datomic])))
+
 
 (defn- insert-at
   [coll item n]
@@ -248,20 +249,6 @@ potentially more criteria."
                        [[] 0.0]
                        mixes))))))
 
-(defn- random-generator
-  "In java creates an instance of Random and in js create a Chance.js instance."
-  [seed]
-  #?(:clj  (java.util.Random. seed)
-     :cljs (js/Chance seed)))
-
-
-(defn next-double
-  "Takes a random-generator and returns the next double."
-  [rgen]
-  #?(:clj  (.nextDouble rgen)
-     :cljs (.floating   rgen #js {:min 0
-                                  :max 0})))
-
 (defn mix-sampler*
   "Given a random number generator and a seq of tuples [weight elems], where
   the weights have been normalized to cumulatively reach 1.0 (as per
@@ -271,11 +258,9 @@ potentially more criteria."
   Each element is only drawn once; order is preserved between elements of the
   same tuple. this is a bit like a randomized clojure.core/interleave, except
   that it will exhaust all seqs rather than stop at the first empty one."
-  [#?(:clj ^java.util.Random rgen
-      :cljs rgen)
-   mixes]
+  [^clojure.test.check.random.JavaUtilSplittableRandom rgen mixes]
   (if (not-empty mixes)
-    (let [v (.nextDouble rgen)
+    (let [v (rand/rand-double rgen)
           mix (first (filter #(> (first %) v) mixes))
           [weight data] mix
           [next-item & data] (seq data)
@@ -289,7 +274,7 @@ potentially more criteria."
 (defn mix-sampler
   "Calls mix-sampler* with fixed random seed so results are deterministic."
   [mixes]
-  (mix-sampler* (random-generator 0) (reweight-mixes mixes)))
+  (mix-sampler* (rand/make-random 0) (reweight-mixes mixes)))
 
 ;; Weighted mixture operator
 ;; [:mix [[0.2 <query>]
