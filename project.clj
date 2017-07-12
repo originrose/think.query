@@ -4,8 +4,7 @@
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [cljsjs/chance "0.7.3-0"]]
 
-  :plugins [[s3-wagon-private "1.3.0"]
-            [cljsjs/chance "0.7.3-0"]]
+  :plugins [[s3-wagon-private "1.3.0"]]
 
   :profiles {:test {:dependencies [[com.datomic/datomic-pro "0.9.5530"]]
                     :repositories  {"my.datomic.com" {:url      "https://my.datomic.com/repo"
@@ -27,5 +26,4 @@
                   ["deploy"]
                   ["change" "version" "leiningen.release/bump-version"]
                   ["vcs" "commit"]
-                  ["vcs" "push"]]
-  )
+                  ["vcs" "push"]])
