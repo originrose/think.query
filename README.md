@@ -29,6 +29,20 @@ Results in:
 ({:user/full-name "Foo, Alice"} {:user/full-name "Foo, Bob"})
 ```
 
+## think.query/-->
+
+The `-->` threading macro is used to thread a sequence of operators in a linear fashion much like the `->` macro does for functions.
+
+The query from above (`[:hydrate [:compute [:realize [:select :*]] :user/full-name] [:user/full-name]]`) could be re-written as the follows:
+
+```.clj
+(--> [:select :*]
+     [:realize]
+     [:compute :user/full-name]
+     [:hydrate [:user/full-name]])
+```
+
+
 ## think.query/let
 The `let` operator allows the user to combine several queries into one result while allowing the user to control the shape of the response. The following example performs two queries and binds them to a map in the result.
 
