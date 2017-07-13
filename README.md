@@ -1,4 +1,7 @@
-# think.query
+
+<a href="https://www.thinktopic.com"><img src="https://cloud.githubusercontent.com/assets/17600203/21554632/6257d9b0-cdce-11e6-8fc6-1a04ec8e9664.jpg" width="200"/></a>
+
+# think.query [![Build Status](https://travis-ci.com/thinktopic/think.query.svg?token=64MLcsqSTjE7SCpD6LB1&branch=master)](https://travis-ci.com/thinktopic/think.query)
 
 A query language for clojure.
 
