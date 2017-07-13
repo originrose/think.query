@@ -16,6 +16,19 @@ There are a couple base assumptions the system makes about the underlying data, 
 that a query maps to a single resource type (currently either :resource.type/visual-variant
 or :resource.type/brand) and that these types have valid resource id's
 
+
+## think.query/select
+
+TODO
+
+## think.query/realize
+
+TODO
+
+## think.query/filter
+
+TODO
+
 ## think.query/compute-operator
 Compute operators specify functionality that should be performed on each element of the selected sequence and assoc'd to the key specified by the compute operator. This provides an extensible mechanism for attaching additional inferred / dynamic attributes to the data.
 
@@ -50,6 +63,15 @@ Producing a result similar to the following:
 ```.clj
 ["alice@foo.com" "bob@foo.com"]
 ```
+
+## think.query/transform-operator :paginate
+
+One particularly useful transform operator that is provided out-of-the-box is the paginate operator. It's use should be self-explanatory but basically the operator can be used like the following:
+```.clj
+[:transform :paginate :limit 10 :offet 0]
+```
+
+Which will only return the first 10 elements of the sequence.
 
 ## think.query/-->
 
