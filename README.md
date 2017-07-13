@@ -49,6 +49,7 @@ Then, the client could use the `transform` operator as follows:
 Producing a result similar to the following: 
 ```.clj
 ["alice@foo.com" "bob@foo.com"]
+```
 
 ## think.query/-->
 
@@ -79,7 +80,3 @@ The result of such a let would look like the following:
 {:alice-email "alice@foo.com"
  :bob-name "Bob"}
 ```
-
-
-```
-
