@@ -30,7 +30,25 @@ Compute operators specify functionality that should be performed on each element
 Results in:
 ```.clj
 ({:user/full-name "Foo, Alice"} {:user/full-name "Foo, Bob"})
+
 ```
+## think.query/transform-operator
+The `tranform` operator allows a server-side transform to be performed on an arbitrary sequence of results. The tranform operator takes a data input as the result of another query operator as well as arbitrary arguments provided by the client. The following example would be provided on the server (Note that this tranform is better suited for a :hydrate, however it is provided here as means of an example how any function over the data could be performed):
+
+```.clj
+(defmethod q/transform-operator :email-list
+  [_ data args]
+  (map :user/email data))
+```
+
+Then, the client could use the `transform` operator as follows:
+```.clj
+(query-user [:transform [:realize [:select :*]] :email-list])]
+```
+
+Producing a result similar to the following: 
+```.clj
+["alice@foo.com" "bob@foo.com"]
 
 ## think.query/-->
 
@@ -62,22 +80,6 @@ The result of such a let would look like the following:
  :bob-name "Bob"}
 ```
 
-## think.query/transform
-The `tranform` operator allows a server-side transform to be performed on an arbitrary sequence of results. The tranform operator takes a data input as the result of another query operator as well as arbitrary arguments provided by the client. The following example would be provided on the server (Note that this tranform is better suited for a :hydrate, however it is provided here as means of an example how any function over the data could be performed):
 
-```.clj
-(defmethod q/transform-operator :email-list
-  [_ data args]
-  (map :user/email data))
-```
-
-Then, the client could use the `transform` operator as follows:
-```.clj
-(query-user [:transform [:realize [:select :*]] :email-list])]
-```
-
-Producing a result similar to the following: 
-```.clj
-["alice@foo.com" "bob@foo.com"]
 ```
 
