@@ -10,6 +10,7 @@
   {:user/email "bob@foo.com"
    :user/age 27
    :user/first-name "Bob"
+   :user/friends ["Alice"]
    :user/last-name "Foo"})
 
 (def test-users [alice bob])

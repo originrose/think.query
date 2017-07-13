@@ -228,6 +228,25 @@
         (every? #(= % "Bob"))
         (is))))
 
+(deftest filter-set-contains-test
+  (testing "An example of using filter on a single attribute."
+    (->> (query-user (--> [:select :*]
+                          [:realize]
+                          [:filter [[:user/friends] :contains "Alice"]]
+                          [:hydrate [:user/first-name]]))
+         (map :user/first-name)
+        (every? #(= % "Bob"))
+        (is))))
+
+(deftest filter-set-contains-mismatch-test
+  (testing "An example of using filter on a single attribute."
+    (->> (query-user (--> [:select :*]
+                          [:realize]
+                          [:filter [[:user/friends] :contains "Bob"]]
+                          [:hydrate [:user/first-name]]))
+         (empty?)
+         (is))))
+
 (deftest filter-contains-or-test
   (testing "An example of using filter on a single attribute."
     (->> (query-user (--> [:select :*]

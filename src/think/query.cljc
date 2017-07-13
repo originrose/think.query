@@ -10,6 +10,7 @@ that a query maps to a single resource type (currently either :resource.type/vis
 or :resource.type/brand) and that these types have valid resource id's"}
     think.query
   (:require
+   [clojure.string :as s]
    [clojure.set :as set]
    [clojure.walk :as walk]
    [clojure.test.check.random :as rand]
@@ -350,7 +351,10 @@ potentially more criteria."
         :not=  #(not= (get-in % path) v)
         :>= #(>= (get-in % path) v)
         :<= #(<= (get-in % path) v)
-        :contains #(some (set (get-in % path)) v)))))
+        :contains #(let [haystack (get-in % path)]
+                     (if (string? haystack)
+                       (not= (.indexOf haystack v) -1)
+                       ((set haystack) v)))))))
 
 (defmethod query-operator :filter
   [indexes [_ sub-query predicate]]

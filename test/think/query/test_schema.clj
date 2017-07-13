@@ -27,6 +27,12 @@
     :db.install/_attribute :db.part/db}
 
    {:db/id #db/id[:db.part/db]
+    :db/ident :user/friends
+    :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/many
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
     :db/ident :user/last-name
     :db/valueType :db.type/string
     :db/cardinality :db.cardinality/one
