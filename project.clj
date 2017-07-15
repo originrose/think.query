@@ -3,6 +3,8 @@
   :url "http://github.com/thinktopic/think.query"
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/test.check "0.10.0-alpha2"]]
+                 [org.omcljs/om "0.9.0"]
+                 [thinktopic/think.peer "0.2.6-SNAPSHOT"]]
 
   :plugins [[s3-wagon-private "1.3.0"]]
 

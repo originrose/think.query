@@ -41,6 +41,7 @@
                                           {:default-index :datomic
                                            :db (test-util/db)})) q)))
 
+
 (deftest test-hydration
   (let [data {:a 2 :b {:c 23 :d 32} :z 23 :children [{:sku 1} {:sku 2} {:sku 3} {:sku 4}]}]
     (is (= data (q/hydrate data '[*])))
@@ -51,6 +52,7 @@
     (is (= {:b (:b data)} (q/hydrate data '[{:b [*]}])))
     (is (= {:children [{:sku 1} {:sku 2} {:sku 3} {:sku 4}]} (q/hydrate data [{:children [:sku]}])))
     (is (= {:b {:d 32} :z 23} (q/hydrate data '[{:b [:d]} :z])))))
+
 
 (deftest should-return-empty-set-when-no-results-on-select
   (let [result (query-user [:select {:user/email "complete garbage"}])]

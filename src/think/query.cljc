@@ -157,33 +157,44 @@ potentially more criteria."
         pred-keys    (remove fast-keys (keys selection))]
     (index-query selection pred-keys indexes indexed-keys)))
 
-(defmulti query-operator (fn [indexes q] (first q)))
+(defmulti query-operator (fn [ctx q] (first q)))
 
 (defn- maybe-query
   "Test if the multi-method implementation is there, otherwise just pass the data through."
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (if (and (sequential? q)
            (keyword? (first q))
-           (get-method query-operator ((.dispatchFn ^clojure.lang.MultiFn query-operator) indexes q)))
+           (get-method query-operator
+                       ((.dispatchFn ^clojure.lang.MultiFn query-operator) indexes q)))
     (query-operator indexes q)
     q))
 
 (defmethod query-operator :select
-  [indexes [_ selection]]
+  [{:keys [indexes] :as ctx} [_ selection]]
   (if (= selection :*)
     (set (keys (:primary-index indexes)))
     (set (do-selection indexes selection))))
 
 (defmethod query-operator :realize
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (let [id-set (query-operator indexes (second q))]
     (map (:primary-index indexes) id-set)))
 
+(defmethod query-operator :mutate
+  [{:keys [mutators] :as ctx} [_ mutation & args]]
+  ((get mutators mutation) args))
+
+(defmethod query-operator :query
+  [{:keys [api] :as ctx} q]
+  (reduce
+    (fn [res api-fn]
+      (assoc res api-fn (apply (get api api-fn))))
+    (keys (second q))))
 
 ; Sort the input sequence
 ;  [:sort q {:path [:product/price] :direction :ascending}]
 (defmethod query-operator :sort
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (let [{:keys [path direction] :or {direction :ascending} :as options} (last q)
         data (query-operator indexes (second q))
         sorted (sort-by #(get-in % path) data)]
@@ -198,7 +209,7 @@ potentially more criteria."
                 params)))
 
 (defmethod query-operator :weighted-sort
-  [indexes [_ subquery params]]
+  [{:keys [indexes] :as ctx} [_ subquery params]]
   (let [data (query-operator indexes subquery)
         params (for [{:keys [path] :as p} params]
                  (assoc p :normalizer (/ 1.0 (+ 1e-10 (apply max (map #(get-in % path) data))))))]
@@ -224,7 +235,7 @@ potentially more criteria."
   (into {} (mapcat #(do-hydrate data %1) hydration)))
 
 (defmethod query-operator :hydrate
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (let [data (query-operator indexes (second q))
         hydration (last q)]
     (map #(hydrate % hydration) data)))
@@ -281,7 +292,7 @@ potentially more criteria."
 ;; [:mix [[0.2 <query>]
 ;;        [0.5 <query>]]]
 (defmethod query-operator :mix
-  [indexes [_ mixes]]
+  [{:keys [indexes] :as ctx} [_ mixes]]
   (->> mixes
        (reweight-mixes)
        (reduce (fn [mem [weight q]]
@@ -295,7 +306,7 @@ potentially more criteria."
 ;  {:offset <int>
 ;   :limit <int>}]
 (defmethod query-operator :query
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (let [{:keys [offset limit] :or {offset 0} :as options} (last q)
         data (query-operator indexes (second q))
         data (if offset (drop offset data) data)
@@ -311,7 +322,7 @@ potentially more criteria."
 
 ;;[:compute sub-query c-type args?]
 (defmethod query-operator :compute
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (let [c-type (nth q 2)
         args (->> q
                   (split-at 3)
@@ -331,7 +342,7 @@ potentially more criteria."
     (if limit (take limit data) data)))
 
 (defmethod query-operator :transform
-  [indexes [_ q op & args]]
+  [{:keys [indexes] :as ctx} [_ q op & args]]
   (let [q-result (query-operator indexes q)]
     (apply transform-operator op q-result (map (partial maybe-query indexes) args))))
 
@@ -357,13 +368,13 @@ potentially more criteria."
                        ((set haystack) v)))))))
 
 (defmethod query-operator :filter
-  [indexes [_ sub-query predicate]]
+  [{:keys [indexes] :as ctx} [_ sub-query predicate]]
   (filter (predicate->fn predicate)
           (query-operator indexes sub-query)))
 
 
 (defmethod query-operator :let-binding
-  [indexes [_ bound-val*]]
+  [{:keys [indexes] :as ctx} [_ bound-val*]]
   @bound-val*)
 
 (defn build-let-result
@@ -383,7 +394,7 @@ potentially more criteria."
       result)))
 
 (defmethod query-operator :let
-  [indexes [_ bindings result]]
+  [{:keys [indexes] :as ctx} [_ bindings result]]
   (let [bindings (partition 2 bindings)
         bind-vals (reduce (fn [bind-vals [b-name b-query]]
                             (let [new-query (walk/postwalk (fn [x] (if (contains? bind-vals x)
@@ -567,5 +578,5 @@ Examples:
        [:realize]
        [:hydrate [:product/name :resource/id]])
 "
-  [resource-type indexes q]
-  (query-operator indexes q))
+  [{:keys [indexes] :as ctx} q]
+  (query-operator ctx q))
