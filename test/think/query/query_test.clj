@@ -304,3 +304,19 @@
         threaded (reduce --> q)
         dethreaded (vec (<-- threaded))]
     (is (= q dethreaded))))
+
+(deftest select-not
+  (let [u1 (java.util.UUID/randomUUID)
+        u2 (java.util.UUID/randomUUID)
+        indexes {:primary-index {u1 {:x 0
+                                     :resource/id u1
+                                     :resource/type :resource.type/foo}
+                                 u2 {:x 1
+                                     :resource/id u2
+                                     :resource/type :resource.type/foo}}}
+        q1 (q/query :resource.type/foo indexes [:select {:x 0}])
+        q2 (q/query :resource.type/foo indexes [:select {:x [:not 0]}])]
+    (is (= 1 (count q1)))
+    (is (= 1 (count q2)))
+    (is (= u1 (first q1)))
+    (is (= u2 (first q2)))))
