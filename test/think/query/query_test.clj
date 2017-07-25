@@ -320,3 +320,20 @@
     (is (= 1 (count q2)))
     (is (= u1 (first q1)))
     (is (= u2 (first q2)))))
+
+(deftest select-not-or
+  (let [u1 (java.util.UUID/randomUUID)
+        u2 (java.util.UUID/randomUUID)
+        u3 (java.util.UUID/randomUUID)
+        indexes {:primary-index {u1 {:x 0
+                                     :resource/id u1
+                                     :resource/type :resource.type/foo}
+                                 u2 {:x 1
+                                     :resource/id u2
+                                     :resource/type :resource.type/foo}
+                                 u3 {:x 2
+                                     :resource/id u3
+                                     :resource/type :resource.type/foo}}}
+        result (q/query :resource.type/foo indexes [:select {:x [:not [:or 0 1]]}])]
+    (is (= 1 (count result)))
+    (is (= u3 (first result)))))
