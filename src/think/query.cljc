@@ -344,6 +344,7 @@ potentially more criteria."
   (case (first predicate)
     :and (apply every-pred (map predicate->fn (rest predicate)))
     :or (apply some-fn (map predicate->fn (rest predicate)))
+    :not #(not ((predicate->fn (second predicate)) %))
     (let [[path operator v] predicate]
       (case operator
         :<  #(< (get-in % path) v)
