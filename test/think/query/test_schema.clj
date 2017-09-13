@@ -19,7 +19,6 @@
   [{:db/id #db/id[:db.part/db]
     :db/ident :resource.type/user}
 
-
    {:db/id #db/id[:db.part/db]
     :db/ident :user/first-name
     :db/valueType :db.type/string
@@ -42,6 +41,13 @@
     :db/ident :user/email
     :db/unique :db.unique/identity
     :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/created
+    :db/unique :db.unique/identity
+    :db/valueType :db.type/instant
     :db/cardinality :db.cardinality/one
     :db.install/_attribute :db.part/db}
 

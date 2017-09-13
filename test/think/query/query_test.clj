@@ -29,8 +29,8 @@
           (vals primary-index)))
 
 (defn query-user
-  [q & {:keys [:use-datomic]
-        :or {:use-datomic false}}]
+  [q & {:keys [use-datomic]
+        :or {use-datomic false}}]
   (let [primary-user-index (query.datomic/default-datomic-index (test-util/db) :resource.type/user)
         attribute-index-fn (partial index-by-attribute primary-user-index)]
     (q/query :resource.type/user (merge {:primary-index primary-user-index
@@ -187,6 +187,21 @@
          (map :user/age)
          (apply >)
          (is))))
+
+(deftest date-filter-test
+  (testing "An example of using filter on dates."
+    (let [creation-times (->> (query-user (--> [:select :*]
+                                               [:realize]
+                                               [:sort {:path [:user/created]
+                                                       :direction :ascending}]
+                                               [:hydrate [:user/created]]))
+                              (map :user/created))
+          newer-users (->> (query-user (--> [:select :*]
+                                            [:realize]
+                                            [:filter [[:user/created] :> (first creation-times)]]
+                                            [:hydrate [:user/created]]))
+                           (map :user/created))]
+      (is (= (dec (count creation-times)) (count newer-users))))))
 
 (deftest filter-gt-test
   (testing "An example of using filter on a single attribute."

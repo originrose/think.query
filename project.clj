@@ -1,7 +1,7 @@
-(defproject thinktopic/think.query "0.1.8-SNAPSHOT"
+(defproject thinktopic/think.query "0.1.9-SNAPSHOT"
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
-  :dependencies [[org.clojure/clojure "1.8.0"]
+  :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
                  [org.clojure/test.check "0.10.0-alpha2"]]
 
   :plugins [[s3-wagon-private "1.3.0"]]
