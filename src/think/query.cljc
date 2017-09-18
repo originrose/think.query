@@ -1,4 +1,4 @@
-(ns ^{:author "ThinkTopic, LLC."
+(ns ^{:author "ThinkTopic"
       :doc "The query system is a general purpose system for querying in-memory indexes
 in addition to the datomic backing style.  The intent is to reduce the number of endpoints by providing a
 general purpose language that can specify the shape of filtered, ordered sets of results.  It is composed
@@ -14,7 +14,8 @@ or :resource.type/brand) and that these types have valid resource id's"}
    [clojure.set :as set]
    [clojure.walk :as walk]
    [clojure.test.check.random :as rand]
-   #?(:clj  [think.query.datomic :as datomic])))
+   #?(:clj  [think.query.datomic :as datomic])
+   [om.next.impl.parser :as parser]))
 
 
 (defn- insert-at
@@ -51,41 +52,6 @@ or :resource.type/brand) and that these types have valid resource id's"}
         (reverse pipeline)))))
 
 
-(defn update-operator
-  "Update one or more operators in a query q of type op by calling the function
-  f on the current operator and replacing it with the result.
-
-  (update-operator [:compute [:realize [:select :*]] :retail-value]
-    :select
-    (fn [x] [:select :THIS-IS-A-NEW-OP]))
-
-     ; => [:compute [:realize [:select :THIS-IS-A-NEW-OP]] :retail-value]
-  "
-  [q op f]
-  (walk/postwalk
-    (fn [node]
-      (if (and (vector? node) (= op (first node)))
-        (f node)
-        node))
-    q))
-
-(defn add-selection-for-key
-  "Add a vector of tags to the select query operator(s) in a query.
-
-    (add-selection-for-key [:select {:product-intelligence/weighted-tags [:or \"burberry\" \"DVG\"]}]
-     :product-intelligence/weighted-tags [\"female\" \"tops\"])
-
-  => [:select {:product-intelligence/weighted-tags [:and [:or \"burberry\" \"DVG\"] \"female\" \"tops\"] }]
-  "
-  [q skey tags]
-  (update-operator q :select
-    (fn [[op selection]]
-      (let [selection (if (= :* selection) {} selection)
-            cur-tags  (skey selection)
-            new-tags (vec (if (nil? cur-tags)
-                       (concat [:and] tags)
-                       (concat [:and cur-tags] tags)))]
-        [:select (assoc selection skey new-tags)]))))
 
 (defn- filter-by-selection
   "Linear scan over data for a given selection"
@@ -166,7 +132,7 @@ potentially more criteria."
            (keyword? (first q))
            (get-method query-operator
                        ((.dispatchFn ^clojure.lang.MultiFn query-operator) indexes q)))
-    (query-operator indexes q)
+    (query-operator ctx q)
     q))
 
 (defmethod query-operator :select
@@ -177,26 +143,41 @@ potentially more criteria."
 
 (defmethod query-operator :realize
   [{:keys [indexes] :as ctx} q]
-  (let [id-set (query-operator indexes (second q))]
+  (let [id-set (query-operator ctx (second q))]
     (map (:primary-index indexes) id-set)))
+
+(defn query-api-reader
+  [{:keys [api parser query ast resource] :as ctx} key params]
+  ;(println (format "query[%s]: %s" key query))
+  (let [v (cond
+            (contains? api key) (apply (get api key) ctx params)
+            (contains? resource key) (get resource key)
+            :default resource)]
+    ;(println "v: " v)
+    (cond
+      (map? v) {:value (parser (assoc ctx :resource v) query)}
+      (sequential? v) {:value (mapv #(parser (assoc ctx :resource %) query) v)}
+      :default {:value v})))
+
+(defn mutator
+  [env key params]
+  {:action (fn [])})
+
+(defmethod query-operator :query
+  [{:keys [api] :as ctx} [_ query]]
+  (let [p (parser/parser {:read query-api-reader :mutate mutator})]
+    (p ctx query)))
 
 (defmethod query-operator :mutate
   [{:keys [mutators] :as ctx} [_ mutation & args]]
-  ((get mutators mutation) args))
-
-(defmethod query-operator :query
-  [{:keys [api] :as ctx} q]
-  (reduce
-    (fn [res api-fn]
-      (assoc res api-fn (apply (get api api-fn))))
-    (keys (second q))))
+  (apply (get mutators mutation) ctx args))
 
 ; Sort the input sequence
 ;  [:sort q {:path [:product/price] :direction :ascending}]
 (defmethod query-operator :sort
-  [{:keys [indexes] :as ctx} q]
+  [ctx q]
   (let [{:keys [path direction] :or {direction :ascending} :as options} (last q)
-        data (query-operator indexes (second q))
+        data (query-operator ctx (second q))
         sorted (sort-by #(get-in % path) data)]
     (if (= direction :ascending)
       sorted
@@ -209,8 +190,8 @@ potentially more criteria."
                 params)))
 
 (defmethod query-operator :weighted-sort
-  [{:keys [indexes] :as ctx} [_ subquery params]]
-  (let [data (query-operator indexes subquery)
+  [ctx [_ subquery params]]
+  (let [data (query-operator ctx subquery)
         params (for [{:keys [path] :as p} params]
                  (assoc p :normalizer (/ 1.0 (+ 1e-10 (apply max (map #(get-in % path) data))))))]
     (sort-by (partial item->score params) data)))
@@ -235,10 +216,16 @@ potentially more criteria."
   (into {} (mapcat #(do-hydrate data %1) hydration)))
 
 (defmethod query-operator :hydrate
-  [{:keys [indexes] :as ctx} q]
-  (let [data (query-operator indexes (second q))
+  [ctx q]
+  (let [data (query-operator ctx (second q))
         hydration (last q)]
-    (map #(hydrate % hydration) data)))
+      (map #(hydrate % hydration) data)))
+
+(defmethod query-operator :get
+  [ctx [_ sub-query k]]
+  (let [data (query-operator ctx sub-query)
+        res (get data k)]
+    (get data k)))
 
 (defn- reweight-mixes
   "Takes a list of [weight elems] and normalizes the weights for a roulette. For example, given:
@@ -296,19 +283,18 @@ potentially more criteria."
   (->> mixes
        (reweight-mixes)
        (reduce (fn [mem [weight q]]
-                 (conj mem [weight (query-operator indexes q)]))
+                 (conj mem [weight (query-operator ctx q)]))
                [])
        (mix-sampler)))
 
-;; The query operator generally acts as the root operator, and provides offset and limit
-;; functionality.
-; [:query <sub-query>
+; Pagination
+; [:paginate <sub-query>
 ;  {:offset <int>
 ;   :limit <int>}]
-(defmethod query-operator :query
+(defmethod query-operator :paginate
   [{:keys [indexes] :as ctx} q]
   (let [{:keys [offset limit] :or {offset 0} :as options} (last q)
-        data (query-operator indexes (second q))
+        data (query-operator ctx (second q))
         data (if offset (drop offset data) data)
         data (if limit (take limit data) data)]
     data))
@@ -327,24 +313,17 @@ potentially more criteria."
         args (->> q
                   (split-at 3)
                   last)]
-    (for [result (query-operator indexes (second q))]
+    (for [result (query-operator ctx (second q))]
       (assoc result c-type (apply compute-operator c-type result args)))))
 
 (defmulti transform-operator
   (fn [op data & args]
     op))
 
-;; Given an offset and a limit, drop the offset and take the limit from the sequence of results.
-(defmethod transform-operator :paginate
-  [_ data & {:keys [offset limit]}]
-  (as->
-    (if offset (drop offset data) data) data
-    (if limit (take limit data) data)))
-
 (defmethod query-operator :transform
   [{:keys [indexes] :as ctx} [_ q op & args]]
-  (let [q-result (query-operator indexes q)]
-    (apply transform-operator op q-result (map (partial maybe-query indexes) args))))
+  (let [q-result (query-operator ctx q)]
+    (apply transform-operator op q-result (map (partial maybe-query ctx) args))))
 
 (defn predicate->fn
   "e.g. [:and [[:retail-value] :> 10]
@@ -370,7 +349,7 @@ potentially more criteria."
 (defmethod query-operator :filter
   [{:keys [indexes] :as ctx} [_ sub-query predicate]]
   (filter (predicate->fn predicate)
-          (query-operator indexes sub-query)))
+          (query-operator ctx sub-query)))
 
 
 (defmethod query-operator :let-binding
@@ -397,11 +376,13 @@ potentially more criteria."
   [{:keys [indexes] :as ctx} [_ bindings result]]
   (let [bindings (partition 2 bindings)
         bind-vals (reduce (fn [bind-vals [b-name b-query]]
-                            (let [new-query (walk/postwalk (fn [x] (if (contains? bind-vals x)
-                                                                     [:let-binding (bind-vals x)]
-                                                                     x))
-                                                           b-query)]
-                              (assoc bind-vals b-name (delay (maybe-query indexes new-query)))))
+                            (let [new-query (walk/postwalk
+                                              (fn [x] (if (contains? bind-vals x)
+                                                        [:let-binding (bind-vals x)]
+                                                        x))
+                                              b-query)]
+                              (assoc bind-vals b-name
+                                     (delay (maybe-query ctx new-query)))))
                           {}
                           bindings)]
     (build-let-result bind-vals result)))
@@ -524,8 +505,8 @@ Current operators are:
                    [:sort {:path [:sort-tags]:direction :descending}]
                    [:hydrate [:resource/id]])]]]
 
-:query - The query operator generally acts as the root operator, and provides offset and limit functionality.
-  [:query <sub-query>
+:paginate - The paginate operator provides offset and limit functionality.
+  [:paginate <sub-query>
     {:offset <int>
      :limit <int>}]
 

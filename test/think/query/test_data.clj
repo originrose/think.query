@@ -84,4 +84,3 @@
    :user/last-name "Foo"})
 
 (def test-users (concat [alice bob] (make-users)))
-

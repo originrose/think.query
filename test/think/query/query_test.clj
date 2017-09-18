@@ -28,18 +28,51 @@
           {}
           (vals primary-index)))
 
+(defn uuid [] (str (java.util.UUID/randomUUID)))
+
+(defn user-primary-index
+  [users]
+  (reduce (fn [index user]
+            (assoc index (uuid) user))
+          {}
+          users))
+
+(defn filtered-users
+  [ctx filters]
+  (let [users (vals (:primary-index (:indexes ctx)))]
+    (if filters
+      (do
+        ;(println "filters: " filters)
+        (filter
+          (fn [user]
+            (let [res (every? #(= (get user (first %)) (second %))
+                              filters)]
+              ;(println res " -> " user)
+              res))
+          users))
+      users)))
+
+(defn users
+  [ctx]
+  (vals (:primary-index (:indexes ctx))))
+
 (defn query-user
   [q & {:keys [:use-datomic]
-        :or {:use-datomic false}}]
-  (let [primary-user-index (query.datomic/default-datomic-index (test-util/db) :resource.type/user)
+        :or {:use-datomic true}}]
+  (let [primary-user-index
+        (if use-datomic
+          (query.datomic/default-datomic-index (test-util/db) :resource.type/user)
+          (user-primary-index test-data/test-users))
         attribute-index-fn (partial index-by-attribute primary-user-index)]
-    (q/query :resource.type/user (merge {:primary-index primary-user-index
-                                         :user/email (attribute-index-fn :user/email)
-                                         :user/age (attribute-index-fn :user/age)
-                                         :user/first-name (attribute-index-fn :user/first-name)}
-                                        (if use-datomic
-                                          {:default-index :datomic
-                                           :db (test-util/db)})) q)))
+    (q/query {:api {:users users
+                    :filtered-users filtered-users}
+              :indexes (merge {:primary-index primary-user-index
+                               :user/email (attribute-index-fn :user/email)
+                               :user/age (attribute-index-fn :user/age)
+                               :user/first-name (attribute-index-fn :user/first-name)}
+                              (if use-datomic
+                                {:default-index :datomic
+                                 :db (test-util/db)}))} q)))
 
 
 (deftest test-hydration
@@ -91,11 +124,19 @@
   (first (:user/email item)))
 
 (deftest compute-operator-test
-  (->> (query-user [:compute [:realize [:select {:user/first-name "Bob"}]] :email-first-letter])
-       (first)
-       (:email-first-letter)
-       (= \b)
-       (is)))
+  (let [res (query-user [:compute [:realize [:select {:user/first-name "Bob"}]]
+                         :email-first-letter])]
+    (is (= \b
+           (:email-first-letter (first res))))))
+
+(defmethod q/query-operator :email-list
+  [{:keys [indexes] :as ctx} q]
+  (map :user/email (q/query-operator ctx q)))
+
+(deftest email-list-transform
+  (let [result (query-user [:email-list [:realize [:select :*]]])]
+    (is (= (sort result)
+           (sort (map :user/email test-data/test-users))))))
 
 (defmethod q/transform-operator :email-list
   [_ data & args]
@@ -103,7 +144,8 @@
 
 (deftest email-list-transform
   (let [result (query-user [:transform [:realize [:select :*]] :email-list])]
-    (is (= (sort result) ["alice@foo.com" "bob@foo.com"]))))
+    (is (= (sort result)
+           (sort (map :user/email test-data/test-users))))))
 
 (deftest test-let-operator
   (let [result (query-user '[:let [a [:realize [:select {:user/email "alice@foo.com"}]]
@@ -126,7 +168,7 @@
   (let [result (query-user '[:let [a [:realize [:select :*]]
                                    b [:transform a :count]]
                              b])]
-    (is (= 2 result))))
+    (is (= 52 result))))
 
 (defmethod q/transform-operator :identity
   [_ data & {:as args}]
@@ -146,9 +188,9 @@
                              b])]
     (is (= (:args result) {:arg1 "arg1"}))))
 
-(deftest transform-paginate
+(deftest paginate
   (let [result (query-user '[:let [a [:realize [:select :*]]
-                                   b [:transform a :paginate :offset 0 :limit 1]]
+                                   b [:paginate a {:offset 0 :limit 1}]]
                              b])]
     (is (= (count result) 1))))
 
@@ -169,14 +211,13 @@
 
 (deftest sort-test
   (testing "An example of using sort."
-    (->> (query-user (--> [:select :*]
-                          [:realize]
-                          [:sort {:path [:user/age]
-                                  :direction :descending}]
-                          [:hydrate [:user/age]]))
-         (map :user/age)
-         (apply >)
-         (is))))
+    (let [res (query-user (--> [:select :*]
+                               [:realize]
+                               [:sort {:path [:user/age]
+                                       :direction :descending}]
+                               [:hydrate [:user/age]]))
+          ages (map :user/age res)]
+         (is (apply >= ages)))))
 
 (deftest weighted-sort-test
   (testing "An example of using weighted-sort on a single attribute."
@@ -187,7 +228,7 @@
                                             :direction :descending}]]
                           [:hydrate [:user/age]]))
          (map :user/age)
-         (apply >)
+         (apply >=)
          (is))))
 
 (deftest filter-gt-test
@@ -254,7 +295,7 @@
     (->> (query-user (--> [:select :*]
                           [:realize]
                           [:filter [:or [[:user/first-name] :contains "Bo"]
-                                    [[:user/first-name] :contains "Al"]]]
+                                    [[:user/first-name] :contains "Alic"]]]
                           [:hydrate [:user/first-name]]))
          (map :user/first-name)
          (every? #(or (= % "Bob") (= % "Alice")))
@@ -306,3 +347,19 @@
         threaded (reduce --> q)
         dethreaded (vec (<-- threaded))]
     (is (= q dethreaded))))
+
+
+(deftest query-api
+  (testing "Calling arbitrary API functions."
+    (let [user-page (query-user (--> [:query [{:users [:user/first-name :user/email]}]]
+                               [:get :users]
+                               [:paginate {:limit 10}]))
+          ;filtered (query-user (--> '[:query [(:users {:user/email "bob@foo.com"
+          ;                                             :user/first-name "Bob"})]]))
+          ]
+      (println user-page)
+      (is (= 10 (count user-page)))
+      ;(println "filtered: " filtered)
+      ;(is (= "Bob" (:user/first-name (first (:users filtered)))))
+      )))
+
