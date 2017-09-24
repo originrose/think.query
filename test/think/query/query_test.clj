@@ -74,6 +74,27 @@
                                 {:default-index :datomic
                                  :db (test-util/db)}))} q)))
 
+(deftest test-reverse-index
+  (let [data test-data/test-users
+        idx (q/reverse-index data :resource/id :user/sex)]
+    (is (= (set (map :resource/id (filter #(= (:user/sex %) :male) data)))
+           (set (q/get-resource-ids idx :male))))
+    (is (= (set (map :resource/id (filter #(= (:user/sex %) :female) data)))
+           (set (q/get-resource-ids idx :female))))))
+
+(deftest test-numeric-index
+  (let [data test-data/test-users
+        idx (q/numeric-index data :resource/id :user/age)]
+    (is (= (set (map :resource/id (filter #(= (:user/age %) 27) data)))
+           (set (q/v= idx :user/age 27))))
+    (is (= (set (map :resource/id (filter #(> (:user/age %) 27) data)))
+           (set (q/v> idx :user/age 27))))
+    (is (= (set (map :resource/id (filter #(< (:user/age %) 27) data)))
+           (set (q/v< idx :user/age 27))))
+    (is (= (set (map :resource/id (filter #(>= (:user/age %) 27) data)))
+           (set (q/v>= idx :user/age 27))))
+    (is (= (set (map :resource/id (filter #(<= (:user/age %) 27) data)))
+           (set (q/v<= idx :user/age 27))))))
 
 (deftest test-hydration
   (let [data {:a 2 :b {:c 23 :d 32} :z 23 :children [{:sku 1} {:sku 2} {:sku 3} {:sku 4}]}]

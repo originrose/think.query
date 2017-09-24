@@ -17,11 +17,89 @@ or :resource.type/brand) and that these types have valid resource id's"}
    #?(:clj  [think.query.datomic :as datomic])
    [om.next.impl.parser :as parser]))
 
+(defprotocol QueryIndex
+  (index-key
+    [this] "Return the key name for this index.")
+  (index-type
+    [this] "Return the type of index."))
+
+(defprotocol ResourceIndex
+  (resource-ids [this] "Get a seq of all resource IDs.")
+  (resources [this] "Get a seq of all resource records.")
+  (get-resource [this k] "Get a single resource record by key."))
+
+(defprotocol KeySetIndex
+  (get-resource-ids [this k] "Get a set of resource IDs by key."))
+
+(defprotocol NumericIndex
+  (v= [this k v] "Get a set of resource IDs where the value of (= (k res) v).")
+  (v< [this k v] "Get a set of resource IDs where the value of (< (k res) v).")
+  (v> [this k v] "Get a set of resource IDs where the value of (> (k res) v).")
+  (v<= [this k v] "Get a set of resource IDs where the value of (<= (k res) v).")
+  (v>= [this k v] "Get a set of resource IDs where the value of (>= (k res) v)."))
+
+(defn map-resource-index
+  [m]
+  (reify
+    ResourceIndex
+    (resource-ids [this] (keys m))
+    (resources    [this] (vals m))
+    (get-resource [this k] (get m k))))
+
+(defn reverse-index
+  "Build a reverse index of the value of (get m k) to sets of :resource/id."
+  [records primary-key index-key]
+  (let [idx (group-by index-key records)
+        idx (into {} (for [[k vs] idx]
+                       [k (set (map primary-key vs))]))]
+    (reify KeySetIndex
+      (get-resource-ids [this k] (get idx k)))))
+
+(defn map-comparator
+  [k]
+  (fn [a b]
+    (< (get a k) (get b k))))
+
+(defn numeric-index
+  "Build a numeric index to support fast queries on numerical values (=, >, <, etc...)"
+  [records primary-key index-key]
+  (let [key-vals (map #(select-keys % [primary-key index-key]) records)
+        index (into [] (sort-by index-key key-vals))]
+    (reify NumericIndex
+      (v= [this k v]
+        (let [i (java.util.Collections/binarySearch
+                  index {index-key v} (map-comparator k))]
+          (map primary-key (take-while #(= v (get % k)) (drop i index)))))
+
+      (v< [this k v]
+        (map primary-key
+             (filter #(< (get % k) v) index)))
+
+      (v> [this k v]
+        (let [i (java.util.Collections/binarySearch
+                  index {index-key v} (map-comparator k))]
+          (map primary-key (filter #(> (get % k) v) (drop i index)))))
+
+      (v<= [this k v]
+        (map primary-key
+             (filter #(<= (get % k) v) index)))
+
+      (v>= [this k v]
+        (let [i (java.util.Collections/binarySearch
+                  index {index-key v} (map-comparator k))]
+          (map primary-key (drop i index)))))))
+
+(defn map-index
+  "Build an index on a map of {resource-id resource} records, optionally with
+  pre-computed reverse and numerical indexes."
+  [res-map & [index-spec]]
+  )
 
 (defn- insert-at
   [coll item n]
   (let [[a b] (split-at n coll)]
     (into [] (concat a [item] b))))
+
 
 (defn -->
   "A query thread operator that works just like ->, except for data in vectors.
@@ -52,7 +130,6 @@ or :resource.type/brand) and that these types have valid resource id's"}
         (reverse pipeline)))))
 
 
-
 (defn- filter-by-selection
   "Linear scan over data for a given selection"
   [{:keys [:default-index :primary-index] :as indexes} selection data]
@@ -66,6 +143,7 @@ or :resource.type/brand) and that these types have valid resource id's"}
            (filter #(= selection-match (get-in % path)))    ;; linear scan / filter
            (map :resource/id)
            (into #{})))))
+
 
 (defn apply-filter-logic
   "Recursively walk through a set of operands building up sets based on a few operators.  The primary index
@@ -89,6 +167,7 @@ or :resource.type/brand) and that these types have valid resource id's"}
        (if sub-index
          (sub-index selection-match)
          (filter-by-selection indexes selection data))))))
+
 
 (defn- index-query
   "Run a query against the in-memory indexes.
@@ -123,7 +202,9 @@ potentially more criteria."
         pred-keys    (remove fast-keys (keys selection))]
     (index-query selection pred-keys indexes indexed-keys)))
 
+
 (defmulti query-operator (fn [ctx q] (first q)))
+
 
 (defn- maybe-query
   "Test if the multi-method implementation is there, otherwise just pass the data through."
@@ -135,16 +216,19 @@ potentially more criteria."
     (query-operator ctx q)
     q))
 
+
 (defmethod query-operator :select
   [{:keys [indexes] :as ctx} [_ selection]]
   (if (= selection :*)
     (set (keys (:primary-index indexes)))
     (set (do-selection indexes selection))))
 
+
 (defmethod query-operator :realize
   [{:keys [indexes] :as ctx} q]
   (let [id-set (query-operator ctx (second q))]
     (map (:primary-index indexes) id-set)))
+
 
 (defn query-api-reader
   [{:keys [api parser query ast resource] :as ctx} key params]
@@ -159,18 +243,22 @@ potentially more criteria."
       (sequential? v) {:value (mapv #(parser (assoc ctx :resource %) query) v)}
       :default {:value v})))
 
+
 (defn mutator
   [env key params]
   {:action (fn [])})
+
 
 (defmethod query-operator :query
   [{:keys [api] :as ctx} [_ query]]
   (let [p (parser/parser {:read query-api-reader :mutate mutator})]
     (p ctx query)))
 
+
 (defmethod query-operator :mutate
   [{:keys [mutators] :as ctx} [_ mutation & args]]
   (apply (get mutators mutation) ctx args))
+
 
 ; Sort the input sequence
 ;  [:sort q {:path [:product/price] :direction :ascending}]
@@ -183,11 +271,13 @@ potentially more criteria."
       sorted
       (reverse sorted))))
 
+
 (defn- item->score
   [params item]
   (apply + (map (fn [{:keys [path direction weight normalizer]}]
                   (* weight normalizer (get-in item path) (if (= :descending direction) -1 1)))
                 params)))
+
 
 (defmethod query-operator :weighted-sort
   [ctx [_ subquery params]]
@@ -196,8 +286,7 @@ potentially more criteria."
                  (assoc p :normalizer (/ 1.0 (+ 1e-10 (apply max (map #(get-in % path) data))))))]
     (sort-by (partial item->score params) data)))
 
-;; Hydration
-; [:hydrate q [:product/name :product/id {:product/variants [:product/sku]}]]
+
 (defn do-hydrate
   [data k]
   (if (sequential? data)
@@ -215,17 +304,22 @@ potentially more criteria."
   [data hydration]
   (into {} (mapcat #(do-hydrate data %1) hydration)))
 
+;; Hydration
+; Specify hydration using the datomic pull syntax.
+; [:hydrate q [:product/name :product/id {:product/variants [:product/sku]}]]
 (defmethod query-operator :hydrate
   [ctx q]
   (let [data (query-operator ctx (second q))
         hydration (last q)]
       (map #(hydrate % hydration) data)))
 
+
 (defmethod query-operator :get
   [ctx [_ sub-query k]]
   (let [data (query-operator ctx sub-query)
         res (get data k)]
     (get data k)))
+
 
 (defn- reweight-mixes
   "Takes a list of [weight elems] and normalizes the weights for a roulette. For example, given:
@@ -247,6 +341,7 @@ potentially more criteria."
                            [(conj mem [v q]) v]))
                        [[] 0.0]
                        mixes))))))
+
 
 (defn mix-sampler*
   "Given a random number generator and a seq of tuples [weight elems], where
@@ -270,16 +365,18 @@ potentially more criteria."
       (lazy-seq (cons next-item
                       (mix-sampler* rgen new-mixes))))))
 
+
 (defn mix-sampler
   "Calls mix-sampler* with fixed random seed so results are deterministic."
   [mixes]
   (mix-sampler* (rand/make-random 0) (reweight-mixes mixes)))
 
-;; Weighted mixture operator
-;; [:mix [[0.2 <query>]
-;;        [0.5 <query>]]]
+
+; Weighted mixture operator
+; [:mix [[0.2 <query>]
+;        [0.5 <query>]]]"
 (defmethod query-operator :mix
-  [{:keys [indexes] :as ctx} [_ mixes]]
+  [ctx [_ mixes]]
   (->> mixes
        (reweight-mixes)
        (reduce (fn [mem [weight q]]
@@ -287,12 +384,12 @@ potentially more criteria."
                [])
        (mix-sampler)))
 
-; Pagination
-; [:paginate <sub-query>
-;  {:offset <int>
-;   :limit <int>}]
+; Pagination with an offset and limit.
+;   [:paginate <sub-query>
+;    {:offset <int>
+;     :limit <int>}]
 (defmethod query-operator :paginate
-  [{:keys [indexes] :as ctx} q]
+  [ctx q]
   (let [{:keys [offset limit] :or {offset 0} :as options} (last q)
         data (query-operator ctx (second q))
         data (if offset (drop offset data) data)
@@ -308,7 +405,7 @@ potentially more criteria."
 
 ;;[:compute sub-query c-type args?]
 (defmethod query-operator :compute
-  [{:keys [indexes] :as ctx} q]
+  [ctx q]
   (let [c-type (nth q 2)
         args (->> q
                   (split-at 3)
@@ -321,7 +418,7 @@ potentially more criteria."
     op))
 
 (defmethod query-operator :transform
-  [{:keys [indexes] :as ctx} [_ q op & args]]
+  [ctx [_ q op & args]]
   (let [q-result (query-operator ctx q)]
     (apply transform-operator op q-result (map (partial maybe-query ctx) args))))
 
@@ -347,13 +444,13 @@ potentially more criteria."
                        ((set haystack) v)))))))
 
 (defmethod query-operator :filter
-  [{:keys [indexes] :as ctx} [_ sub-query predicate]]
+  [ctx [_ sub-query predicate]]
   (filter (predicate->fn predicate)
           (query-operator ctx sub-query)))
 
 
 (defmethod query-operator :let-binding
-  [{:keys [indexes] :as ctx} [_ bound-val*]]
+  [ctx [_ bound-val*]]
   @bound-val*)
 
 (defn build-let-result
@@ -373,7 +470,7 @@ potentially more criteria."
       result)))
 
 (defmethod query-operator :let
-  [{:keys [indexes] :as ctx} [_ bindings result]]
+  [ctx [_ bindings result]]
   (let [bindings (partition 2 bindings)
         bind-vals (reduce (fn [bind-vals [b-name b-query]]
                             (let [new-query (walk/postwalk
