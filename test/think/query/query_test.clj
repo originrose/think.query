@@ -248,6 +248,21 @@
          (apply >=)
          (is))))
 
+(deftest date-filter-test
+  (testing "An example of using filter on dates."
+    (let [creation-times (->> (query-user (--> [:select :*]
+                                               [:realize]
+                                               [:sort {:path [:user/created]
+                                                       :direction :ascending}]
+                                               [:hydrate [:user/created]]))
+                              (map :user/created))
+          newer-users (->> (query-user (--> [:select :*]
+                                            [:realize]
+                                            [:filter [[:user/created] :> (first creation-times)]]
+                                            [:hydrate [:user/created]]))
+                           (map :user/created))]
+      (is (= (dec (count creation-times)) (count newer-users))))))
+
 (deftest filter-gt-test
   (testing "An example of using filter on a single attribute."
     (->> (query-user (--> [:select :*]
@@ -273,6 +288,16 @@
     (->> (query-user (--> [:select :*]
                           [:realize]
                           [:filter [[:user/first-name] :not= "Bob"]]
+                          [:hydrate [:user/first-name]]))
+         (map :user/first-name)
+         (every? #(not= % "Bob"))
+         (is))))
+
+(deftest filter-not-test
+  (testing "An example of using not filter on a single attribute."
+    (->> (query-user (--> [:select :*]
+                          [:realize]
+                          [:filter [:not [[:user/first-name] := "Bob"]]]
                           [:hydrate [:user/first-name]]))
          (map :user/first-name)
          (every? #(not= % "Bob"))
@@ -363,7 +388,6 @@
         dethreaded (vec (<-- threaded))]
     (is (= q dethreaded))))
 
-
 (deftest query-api
   (testing "Calling arbitrary API functions."
     (let [user-page (query-user (--> [:query [{:users [:user/first-name :user/email]}]]
@@ -377,3 +401,74 @@
       ;;(println "filtered: " filtered)
       ;;(is (= "Bob" (:user/first-name (first (:users filtered)))))
       )))
+
+(deftest select-not
+  (let [u1 (java.util.UUID/randomUUID)
+        u2 (java.util.UUID/randomUUID)
+        indexes {:primary-index {u1 {:x 0
+                                     :resource/id u1
+                                     :resource/type :resource.type/foo}
+                                 u2 {:x 1
+                                     :resource/id u2
+                                     :resource/type :resource.type/foo}}}
+        q1 (q/query {:indexes indexes} [:select {:x 0}])
+        q2 (q/query {:indexes indexes} [:select {:x [:not 0]}])]
+    (is (= 1 (count q1)))
+    (is (= 1 (count q2)))
+    (is (= u1 (first q1)))
+    (is (= u2 (first q2)))))
+
+(deftest select-not-with-reverse-index
+  (let [u1 (java.util.UUID/randomUUID)
+        u2 (java.util.UUID/randomUUID)
+        indexes {:primary-index {u1 {:x 0
+                                     :resource/id u1
+                                     :resource/type :resource.type/foo}
+                                 u2 {:x 1
+                                     :resource/id u2
+                                     :resource/type :resource.type/foo}}
+                 :x {0 #{u1}
+                     1 #{u2}}}
+        q1 (q/query {:indexes indexes} [:select {:x 0}])
+        q2 (q/query {:indexes indexes} [:select {:x [:not 0]}])]
+    (is (= 1 (count q1)))
+    (is (= 1 (count q2)))
+    (is (= u1 (first q1)))
+    (is (= u2 (first q2)))))
+
+(deftest select-not-or
+  (let [u1 (java.util.UUID/randomUUID)
+        u2 (java.util.UUID/randomUUID)
+        u3 (java.util.UUID/randomUUID)
+        indexes {:primary-index {u1 {:x 0
+                                     :resource/id u1
+                                     :resource/type :resource.type/foo}
+                                 u2 {:x 1
+                                     :resource/id u2
+                                     :resource/type :resource.type/foo}
+                                 u3 {:x 2
+                                     :resource/id u3
+                                     :resource/type :resource.type/foo}}}
+        result (q/query {:indexes indexes} [:select {:x [:not [:or 0 1]]}])]
+    (is (= 1 (count result)))
+    (is (= u3 (first result)))))
+
+(deftest select-not-or-with-reverse-index
+  (let [u1 (java.util.UUID/randomUUID)
+        u2 (java.util.UUID/randomUUID)
+        u3 (java.util.UUID/randomUUID)
+        indexes {:primary-index {u1 {:x 0
+                                     :resource/id u1
+                                     :resource/type :resource.type/foo}
+                                 u2 {:x 1
+                                     :resource/id u2
+                                     :resource/type :resource.type/foo}
+                                 u3 {:x 2
+                                     :resource/id u3
+                                     :resource/type :resource.type/foo}}
+                 :x {0 #{u1}
+                     1 #{u2}
+                     2 #{u3}}}
+        result (q/query {:indexes indexes} [:select {:x [:not [:or 0 1]]}])]
+    (is (= 1 (count result)))
+    (is (= u3 (first result)))))

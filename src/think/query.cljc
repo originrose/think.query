@@ -149,24 +149,22 @@ or :resource.type/brand) and that these types have valid resource id's"}
   "Recursively walk through a set of operands building up sets based on a few operators.  The primary index
   here is used solely for generating the entire set of uuid's when we want the set of all items *not* in
   a given query."
-  ([indexes selection]
-   (apply-filter-logic indexes selection #{}))
-  ([indexes selection data]
-   (let [[index-key selection-match] (first selection)
-         sub-index (get indexes index-key)]
-     (if (and (sequential? selection-match)
-              (pos? (count selection-match))
-              (some #{(first selection-match)} [:and :or :not]))     ;; selection match has boolean logic
-       (let [;;Sub-query result is a sequence of sets
-             sub-query-result (->> (rest selection-match)
-                                   (map #(apply-filter-logic indexes {index-key %} data)))]
-         (case (first selection-match)
-           :and (apply set/intersection sub-query-result)
-           :or  (apply set/union sub-query-result)
-           :not (apply set/difference data sub-query-result)))
-       (if sub-index
-         (sub-index selection-match)
-         (filter-by-selection indexes selection data))))))
+  [indexes selection data]
+  (let [[index-key selection-match] (first selection)
+        sub-index (get indexes index-key)]
+    (if (and (sequential? selection-match)
+             (pos? (count selection-match))
+             (some #{(first selection-match)} [:and :or :not]))     ;; selection match has boolean logic
+      (let [;;Sub-query result is a sequence of sets
+            sub-query-result (->> (rest selection-match)
+                                  (map #(apply-filter-logic indexes {index-key %} data)))]
+        (case (first selection-match)
+          :and (apply set/intersection sub-query-result)
+          :or  (apply set/union sub-query-result)
+          :not (apply set/difference data sub-query-result)))
+      (if sub-index
+        (sub-index selection-match)
+        (filter-by-selection indexes selection data)))))
 
 
 (defn- index-query
@@ -185,9 +183,12 @@ values.  Returns a lazy sequence of resource ids."
                    (if (some #{item} indexed-keys)
                      (set/intersection eax new-items)
                      new-items)))
-               (if (empty? indexed-keys)
-                 (set (keys (:primary-index indexes)))
-                 (apply-filter-logic indexes (select-keys selection [(first indexed-keys)]))))))
+               (let [resource-id-set (set (keys (:primary-index indexes)))]
+                 (if (empty? indexed-keys)
+                   resource-id-set
+                   (apply-filter-logic indexes
+                                       (select-keys selection [(first indexed-keys)])
+                                       resource-id-set))))))
 
 
 (defn do-selection
@@ -430,17 +431,30 @@ potentially more criteria."
   (case (first predicate)
     :and (apply every-pred (map predicate->fn (rest predicate)))
     :or (apply some-fn (map predicate->fn (rest predicate)))
+    :not #(not ((predicate->fn (second predicate)) %))
     (let [[path operator v] predicate]
       (case operator
-        :<  #(< (get-in % path) v)
-        :>  #(> (get-in % path) v)
+        :<  #?(:clj (if (inst? v)
+                      #(< (.getTime (get-in % path)) (.getTime v))
+                      #(< (get-in % path) v))
+               :cljs #(< (get-in % path) v))
+        :>  #?(:clj (if (inst? v)
+                        #(> (.getTime (get-in % path)) (.getTime v))
+                        #(> (get-in % path) v))
+               :cljs #(> (get-in % path) v))
+        :>= #?(:clj  (if (inst? v)
+                       #(>= (.getTime (get-in % path)) (.getTime v))
+                       #(>= (get-in % path) v))
+               :cljs #(>= (get-in % path) v))
+        :<= #?(:clj  (if (inst? v)
+                       #(<= (.getTime (get-in % path)) (.getTime v))
+                       #(<= (get-in % path) v))
+               :cljs #(<= (get-in % path) v))
         :=  #(= (get-in % path) v)
         :not=  #(not= (get-in % path) v)
-        :>= #(>= (get-in % path) v)
-        :<= #(<= (get-in % path) v)
         :contains #(let [haystack (get-in % path)]
                      (if (and (string? haystack) (string? v))
-                       (not= (.indexOf ^String haystack ^String v) -1)
+                       (not= (.indexOf haystack v) -1)
                        ((set haystack) v)))))))
 
 (defmethod query-operator :filter

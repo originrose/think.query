@@ -69,11 +69,12 @@
                        (format "%s.%s@%s" f-name l-name (rand-nth EMAILS)))]
             {:resource/type :resource.type/user
              :resource/id (uuid)
+             :user/first-name f-name
+             :user/last-name l-name
              :user/sex sex
              :user/email email
              :user/age (+ 18 i)
-             :user/first-name f-name
-             :user/last-name l-name})))
+             :user/created (java.util.Date.)})))
        (into [])))
 
 (def alice
@@ -83,7 +84,8 @@
    :user/last-name "Foo"
    :user/sex :female
    :user/email "alice@foo.com"
-   :user/age 23})
+   :user/age 23
+   :user/created #inst "2017-09-12T18:24:09.556-00:00"})
 
 (def bob
   {:resource/type :resource.type/user
@@ -93,6 +95,7 @@
    :user/sex :male
    :user/email "bob@foo.com"
    :user/age 27
-   :user/friends ["Alice"]})
+   :user/friends ["Alice"]
+   :user/created #inst "2017-09-12T18:24:10.556-00:00"})
 
 (def test-users (concat [alice bob] (make-users)))
