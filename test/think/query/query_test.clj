@@ -53,9 +53,9 @@
   (vals (:primary-index (:indexes ctx))))
 
 (defn query-user
-  [q & {:keys [:use-datomic]
-        :or {:use-datomic true}}]
-  (let [primary-user-index
+  [q]
+  (let [use-datomic true
+        primary-user-index
         (if use-datomic
           (query.datomic/default-datomic-index (test-util/db) :resource.type/user)
           (user-primary-index test-data/test-users))
@@ -329,8 +329,7 @@
       (is))
     (->> (query-user (--> [:select {:user/last-name "Foo"}]
                           [:realize]
-                          [:hydrate [:user/first-name]])
-                     :use-datomic true)
+                          [:hydrate [:user/first-name]]))
       (map :user/first-name)
       (every? #(or (= % "Bob") (= % "Alice")))
       (is))))
@@ -348,8 +347,7 @@
       (->> (query-user (--> [:select {:user/last-name "Foo"
                                       :user/first-name "Bob"}]
                             [:realize]
-                            [:hydrate [:user/first-name]])
-                       :use-datomic true)
+                            [:hydrate [:user/first-name]]))
         (map :user/first-name)
         (first)
         (= "Bob")
