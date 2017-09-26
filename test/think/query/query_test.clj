@@ -38,12 +38,12 @@
   (let [users (vals (:primary-index (:indexes ctx)))]
     (if filters
       (do
-        ;(println "filters: " filters)
+        ;;(println "filters: " filters)
         (filter
           (fn [user]
             (let [res (every? #(= (get user (first %)) (second %))
                               filters)]
-              ;(println res " -> " user)
+              ;;(println res " -> " user)
               res))
           users))
       users)))
@@ -369,13 +369,13 @@
 (deftest query-api
   (testing "Calling arbitrary API functions."
     (let [user-page (query-user (--> [:query [{:users [:user/first-name :user/email]}]]
-                               [:get :users]
-                               [:paginate {:limit 10}]))
-          ;filtered (query-user (--> '[:query [(:users {:user/email "bob@foo.com"
-          ;                                             :user/first-name "Bob"})]]))
+                                     [:get :users]
+                                     [:paginate {:limit 10}]))
+          ;;filtered (query-user (--> '[:query [(:users {:user/email "bob@foo.com"
+          ;;                                             :user/first-name "Bob"})]]))
           ]
-      (println user-page)
+      ;;(println user-page)
       (is (= 10 (count user-page)))
-      ;(println "filtered: " filtered)
-      ;(is (= "Bob" (:user/first-name (first (:users filtered)))))
+      ;;(println "filtered: " filtered)
+      ;;(is (= "Bob" (:user/first-name (first (:users filtered)))))
       )))
