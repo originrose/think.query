@@ -232,12 +232,12 @@ potentially more criteria."
 
 (defn query-api-reader
   [{:keys [api parser query ast resource] :as ctx} key params]
-  ;(println (format "query[%s]: %s" key query))
+  ;;(println (format "query[%s]: %s" key query))
   (let [v (cond
             (contains? api key) (apply (get api key) ctx params)
             (contains? resource key) (get resource key)
             :default resource)]
-    ;(println "v: " v)
+    ;;(println "v: " v)
     (cond
       (map? v) {:value (parser (assoc ctx :resource v) query)}
       (sequential? v) {:value (mapv #(parser (assoc ctx :resource %) query) v)}
@@ -260,8 +260,8 @@ potentially more criteria."
   (apply (get mutators mutation) ctx args))
 
 
-; Sort the input sequence
-;  [:sort q {:path [:product/price] :direction :ascending}]
+;; Sort the input sequence
+;;  [:sort q {:path [:product/price] :direction :ascending}]
 (defmethod query-operator :sort
   [ctx q]
   (let [{:keys [path direction] :or {direction :ascending} :as options} (last q)
@@ -439,8 +439,8 @@ potentially more criteria."
         :>= #(>= (get-in % path) v)
         :<= #(<= (get-in % path) v)
         :contains #(let [haystack (get-in % path)]
-                     (if (string? haystack)
-                       (not= (.indexOf haystack v) -1)
+                     (if (and (string? haystack) (string? v))
+                       (not= (.indexOf ^String haystack ^String v) -1)
                        ((set haystack) v)))))))
 
 (defmethod query-operator :filter

@@ -7,13 +7,7 @@
 
 (defn- import-test-data
   [datomic-uri]
-  (->> test-data/test-users
-       (map #(assoc %
-                    :resource/id (d/squuid)
-                    :resource/type :resource.type/user
-                    :db/id (d/tempid :db.part/db)))
-       (d/transact (d/connect datomic-uri))
-       deref))
+  @(d/transact (d/connect datomic-uri) test-data/test-users))
 
 (defn- test-system
   [test-fn setup-fn]

@@ -1,4 +1,5 @@
-(ns think.query.refactor)
+(ns think.query.refactor
+  (:require [clojure.walk :as walk]))
 
 (defn update-operator
   "Update one or more operators in a query q of type op by calling the function
@@ -35,4 +36,3 @@
                        (concat [:and] tags)
                        (concat [:and cur-tags] tags)))]
         [:select (assoc selection skey new-tags)]))))
-

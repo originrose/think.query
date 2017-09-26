@@ -19,7 +19,6 @@
   [{:db/id #db/id[:db.part/db]
     :db/ident :resource.type/user}
 
-
    {:db/id #db/id[:db.part/db]
     :db/ident :user/first-name
     :db/valueType :db.type/string
@@ -27,15 +26,21 @@
     :db.install/_attribute :db.part/db}
 
    {:db/id #db/id[:db.part/db]
-    :db/ident :user/friends
-    :db/valueType :db.type/string
-    :db/cardinality :db.cardinality/many
-    :db.install/_attribute :db.part/db}
-
-   {:db/id #db/id[:db.part/db]
     :db/ident :user/last-name
     :db/valueType :db.type/string
     :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/sex
+    :db/valueType :db.type/keyword
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/friends
+    :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/many
     :db.install/_attribute :db.part/db}
 
    {:db/id #db/id[:db.part/db]

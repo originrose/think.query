@@ -12,10 +12,6 @@
 ; * run queries against plain datomic user database
 ; * create an index or two, and then run more queries
 
-(defn- resource-id-lookup
-  [rid]
-  #{rid})
-
 (use-fixtures :each test-util/with-db)
 
 (defn- index-by-attribute [primary-index attribute]
@@ -383,4 +379,3 @@
       ;(println "filtered: " filtered)
       ;(is (= "Bob" (:user/first-name (first (:users filtered)))))
       )))
-
