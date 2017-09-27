@@ -7,14 +7,13 @@
 
   :plugins [[s3-wagon-private "1.3.0"]]
 
-  :profiles {:dev {:dependencies [[com.datomic/datomic-pro "0.9.5530"]]
+  :profiles {:dev {:dependencies [[com.datomic/datomic-pro "0.9.5530"]
+                                  [org.clojure/java.jdbc "0.7.1"]
+                                  [com.h2database/h2 "1.4.196"]
+                                  [honeysql "0.9.1"]]
                    :repositories {"my.datomic.com" {:url      "https://my.datomic.com/repo"
                                                     :username :env/DATOMIC_USERNAME
                                                     :password :env/DATOMIC_PASSWORD}}}
-             :test {:dependencies [[com.datomic/datomic-pro "0.9.5530"]]
-                    :repositories {"my.datomic.com" {:url      "https://my.datomic.com/repo"
-                                                     :username :env/DATOMIC_USERNAME
-                                                     :password :env/DATOMIC_PASSWORD}}}
              :tools {:dependencies [[thinktopic/tools-db "0.1.13"]]}}
 
   :aliases {"db" ["with-profile" "tools" "run" "-m" "think.tools-db.main"]}
