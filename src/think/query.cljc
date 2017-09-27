@@ -133,7 +133,7 @@ underlying data, namely that each data item has `:resource/id` and
 
 (defn- filter-by-selection
   "Linear scan over data for a given selection"
-  [{:keys [:default-index :primary-index] :as indexes} selection data]
+  [{:keys [:primary-index] :as indexes} selection data]
   (let [[index-key selection-match] (first selection)
         path (if (sequential? index-key) index-key [index-key])]
     (->> data
