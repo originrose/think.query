@@ -218,22 +218,26 @@ values.  Returns a lazy sequence of resource ids."
 
 ;; Select
 ;; Get a set of resource ids from a data store
-;; TODO: Protocol for different data stores
+;; A selector is a function that takes a map like `:select` and returns a set of `:resource/id`s
 (defmethod query-operator :select
-  [{:keys [indexes] :as ctx} [_ selection]]
-  (if (= selection :*)
-    (set (keys (:primary-index indexes)))
-    (set (do-selection indexes selection))))
+  [{:keys [indexes selector] :as ctx} [_ selection]]
+  (if selector
+    (selector selection)
+    (if (= selection :*)
+      (set (keys (:primary-index indexes)))
+      (set (do-selection indexes selection)))))
 
 
 ;; Realize
 ;; Turns a set of resource ids into actual resources
+;; A realizer is a function that takes a set of `:resource/id`s and an optional datomic-like hydration and returns a sequence of maps
 ;; TODO: Optional hydration
-;; TODO: Protocol for different data stores
 (defmethod query-operator :realize
-  [{:keys [indexes] :as ctx} q]
+  [{:keys [indexes realizer] :as ctx} q]
   (let [id-set (query-operator ctx (second q))]
-    (map (:primary-index indexes) id-set)))
+    (if realizer
+      (realizer id-set)
+      (map (:primary-index indexes) id-set))))
 
 
 (defn query-api-reader

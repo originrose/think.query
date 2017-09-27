@@ -62,13 +62,27 @@
           :sql (sql/sql-primary-index (test-util/sql-db)
                                       :resource.type/user
                                       test-util/sql-map->user))
-        attribute-index-fn (partial index-by-attribute primary-user-index)]
-    (q/query {:api {:users users
-                    :filtered-users filtered-users}
-              :indexes (merge {:primary-index primary-user-index
-                               :user/email (attribute-index-fn :user/email)
-                               :user/age (attribute-index-fn :user/age)
-                               :user/first-name (attribute-index-fn :user/first-name)})}
+        attribute-index-fn (partial index-by-attribute primary-user-index)
+        selector (condp = data-source
+                   :sql (partial sql/sql-selector
+                                 (test-util/sql-db)
+                                 :resource.type/user
+                                 test-util/keyword->column-name)
+                   nil)
+        realizer (condp = data-source
+                   :sql (partial sql/sql-realizer
+                                 (test-util/sql-db)
+                                 :resource.type/user
+                                 test-util/sql-map->user)
+                   nil)]
+    (q/query (merge {:api {:users users
+                           :filtered-users filtered-users}
+                     :indexes (merge {:primary-index primary-user-index
+                                      :user/email (attribute-index-fn :user/email)
+                                      :user/age (attribute-index-fn :user/age)
+                                      :user/first-name (attribute-index-fn :user/first-name)})}
+                    (when selector {:selector selector})
+                    (when realizer {:realizer realizer}))
              q)))
 
 (deftest should-return-empty-set-when-no-results-on-select

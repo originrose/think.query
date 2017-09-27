@@ -95,14 +95,13 @@
 
 (defn- user->sql-map
   "Convert clojure types to H2 SQL friendly ones."
-  [{:keys [resource/id resource/type
+  [{:keys [resource/id
            user/first-name user/last-name
            user/sex user/friends
            user/email user/created user/age]}]
-  {"\"resource/id\"" id
-   "\"resource/type\"" (str type)
-   "\"first-name\"" first-name
-   "\"last-name\"" last-name
+  {:id id
+   :firstname first-name
+   :lastname last-name
    :sex (str sex)
    :friends (pr-str friends)
    :email email
@@ -111,22 +110,25 @@
 
 (defn sql-map->user
   "Convert sql query results back to rich clojure maps."
-  [{:keys [age created email first-name last-name friends sex resource/id resource/type]}]
+  [{:keys [age created email firstname lastname friends sex id]}]
   {:resource/id id
-   :resource/type (clojure.edn/read-string type)
-   :user/first-name first-name
-   :user/last-name last-name
+   :resource/type :resource.type/user
+   :user/first-name firstname
+   :user/last-name lastname
    :user/sex (clojure.edn/read-string sex)
    :user/email email
    :user/age age
    :user/friends (clojure.edn/read-string friends)
    :user/created created})
 
+(defn keyword->column-name
+  [k]
+  (keyword (.replace (name k) "-" "")))
+
 (def sql-schema (format "CREATE TABLE user (%s);"
-                        (->> ["\"resource/id\" uuid"
-                              "\"resource/type\" varchar"
-                              "\"first-name\" varchar"
-                              "\"last-name\" varchar"
+                        (->> ["id uuid"
+                              "firstname varchar"
+                              "lastname varchar"
                               "sex varchar"
                               "friends varchar"
                               "email varchar"
