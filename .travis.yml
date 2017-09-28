@@ -6,4 +6,4 @@ jdk:
 before_install:
   - source ./scripts/install.sh
 script:
-  - lein with-profile test test
+  - lein test
