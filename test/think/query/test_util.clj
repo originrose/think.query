@@ -1,5 +1,5 @@
 (ns think.query.test-util
-  (:require [clojure.string :as str]
+  (:require [clojure.string :as s]
             [datomic.api :as d]
             [clojure.java.jdbc :as jdbc]
             [honeysql.core :as sql]
@@ -134,7 +134,7 @@
                               "email varchar"
                               "created timestamp"
                               "age int"]
-                             (str/join ","))))
+                             (s/join ","))))
 
 (defn- setup-sql
   []

@@ -1,5 +1,5 @@
 (ns think.query.test-data
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as s]))
 
 (defn uuid [] (java.util.UUID/randomUUID))
 
@@ -64,7 +64,7 @@
   (->> NAMES
        (map-indexed
         (fn [i {:keys [name user/sex]}]
-          (let [[f-name l-name] (str/split name #" ")
+          (let [[f-name l-name] (s/split name #" ")
                 email (.toLowerCase
                        (format "%s.%s@%s" f-name l-name (rand-nth EMAILS)))]
             {:resource/type :resource.type/user

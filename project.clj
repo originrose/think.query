@@ -2,8 +2,7 @@
   :description "A query language for clojure."
   :url "http://github.com/thinktopic/think.query"
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
-                 [org.clojure/test.check "0.10.0-alpha2"]
-                 [org.omcljs/om "1.0.0-beta1"]]
+                 [org.clojure/test.check "0.10.0-alpha2"]]
 
   :plugins [[s3-wagon-private "1.3.0"]]
 

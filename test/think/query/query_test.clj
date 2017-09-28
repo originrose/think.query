@@ -410,23 +410,6 @@
            (= "Bob")
            (is)))))
 
-(deftest query-api
-  (doseq [data-source #{:in-memory :datomic :sql}]
-    (testing (str "Calling arbitrary API functions: " data-source)
-      (let [user-page (query-user data-source
-                                  (--> [:query [{:users [:user/first-name :user/email]}]]
-                                       [:get :users]
-                                       [:paginate {:limit 10}]))
-            ;;filtered (query-user data-source
-            ;;                     (--> '[:query [(:users {:user/email "bob@foo.com"
-            ;;                                             :user/first-name "Bob"})]]))
-            ]
-        ;;(println user-page)
-        (is (= 10 (count user-page)))
-        ;;(println "filtered: " filtered)
-        ;;(is (= "Bob" (:user/first-name (first (:users filtered)))))
-        ))))
-
 (deftest select-not
   (let [u1 (java.util.UUID/randomUUID)
         u2 (java.util.UUID/randomUUID)
@@ -500,28 +483,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Unit tests for functions other than `q/query`
-(deftest test-reverse-index
-  (let [data test-data/test-users
-        idx (q/reverse-index data :resource/id :user/sex)]
-    (is (= (set (map :resource/id (filter #(= (:user/sex %) :male) data)))
-           (set (q/get-resource-ids idx :male))))
-    (is (= (set (map :resource/id (filter #(= (:user/sex %) :female) data)))
-           (set (q/get-resource-ids idx :female))))))
-
-(deftest test-numeric-index
-  (let [data test-data/test-users
-        idx (q/numeric-index data :resource/id :user/age)]
-    (is (= (set (map :resource/id (filter #(= (:user/age %) 27) data)))
-           (set (q/v= idx :user/age 27))))
-    (is (= (set (map :resource/id (filter #(> (:user/age %) 27) data)))
-           (set (q/v> idx :user/age 27))))
-    (is (= (set (map :resource/id (filter #(< (:user/age %) 27) data)))
-           (set (q/v< idx :user/age 27))))
-    (is (= (set (map :resource/id (filter #(>= (:user/age %) 27) data)))
-           (set (q/v>= idx :user/age 27))))
-    (is (= (set (map :resource/id (filter #(<= (:user/age %) 27) data)))
-           (set (q/v<= idx :user/age 27))))))
-
 (deftest test-hydration
   (let [data {:a 2 :b {:c 23 :d 32} :z 23 :children [{:sku 1} {:sku 2} {:sku 3} {:sku 4}]}]
     (is (= data (q/hydrate data '[*])))
