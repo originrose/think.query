@@ -54,58 +54,55 @@
 
 (defn query-user
   [data-source q]
-  (assert (#{:in-memory :datomic :sql} data-source))
+  (assert (#{:in-memory :datomic :sql-in-mem :sql-dynamic} data-source))
   (let [primary-user-index
         (condp = data-source
           :in-memory (in-memory-primary-index test-data/test-users)
           :datomic (datomic/datomic-primary-index (test-util/db) :resource.type/user)
-          :sql (sql/sql-primary-index (test-util/sql-db)
+          :sql-in-mem (sql/sql-primary-index (test-util/sql-db)
                                       :resource.type/user
-                                      test-util/sql-map->user))
+                                      test-util/sql-map->user)
+          :sql-dynamic nil)
         attribute-index-fn (partial index-by-attribute primary-user-index)
-        selector (condp = data-source
-                   :sql (partial sql/sql-selector
-                                 (test-util/sql-db)
-                                 :resource.type/user
-                                 test-util/keyword->column-name)
-                   nil)
-        realizer (condp = data-source
-                   :sql (partial sql/sql-realizer
-                                 (test-util/sql-db)
-                                 :resource.type/user
-                                 test-util/sql-map->user)
-                   nil)]
-    (q/query (merge {:api {:users users
-                           :filtered-users filtered-users}
-                     :indexes (merge {:primary-index primary-user-index
-                                      :user/email (attribute-index-fn :user/email)
-                                      :user/age (attribute-index-fn :user/age)
-                                      :user/first-name (attribute-index-fn :user/first-name)})}
-                    (when selector {:selector selector})
-                    (when realizer {:realizer realizer}))
-             q)))
+        indexes {:primary-index primary-user-index
+                 :user/email (attribute-index-fn :user/email)
+                 :user/age (attribute-index-fn :user/age)
+                 :user/first-name (attribute-index-fn :user/first-name)}
+        ctx (condp = data-source
+              :in-memory indexes ;; Test v1 shape
+              :datomic {:indexes indexes}
+              :sql-in-mem {:indexes indexes}
+              :sql-dynamic {:selector (partial sql/sql-selector
+                                               (test-util/sql-db)
+                                               :resource.type/user
+                                               test-util/keyword->column-name)
+                            :realizer (partial sql/sql-realizer
+                                               (test-util/sql-db)
+                                               :resource.type/user
+                                               test-util/sql-map->user)})]
+    (q/query ctx q)))
 
 (deftest should-return-empty-set-when-no-results-on-select
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "Empty result: " data-source)
       (let [result (query-user data-source [:select {:user/email "complete garbage"}])]
         (is (= 0 (count result)))))))
 
 (deftest select-indexed-keys
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "indexed-keys: " data-source)
       (let [email "alice@foo.com"
             result (query-user data-source [:select {:user/email email}])]
         (is (= #{(:resource/id test-data/alice)} result))))))
 
 (deftest select-non-indexed-keys
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "non-indexed-keys: " data-source)
       (let [result (query-user data-source [:select {:user/first-name "Bob"}])]
         (is (= #{(:resource/id test-data/bob)} result))))))
 
 (deftest select-multiple-indexed-keys
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "multiple indexed keys: " data-source)
       (let [result (query-user data-source [:select {:user/first-name "Bob"
                                                      :user/email "bob@foo.com"}])]
@@ -116,7 +113,7 @@
         (is (= 0 (count result)))))))
 
 (deftest star-query
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str ":* returns all: " data-source)
       (let [result (query-user data-source [:select :*])]
         (is (= (count test-data/test-users) (count result)))))))
@@ -126,7 +123,7 @@
   (first (:user/email item)))
 
 (deftest compute-operator-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str ":compute works: " data-source)
       (let [q (--> [:select {:user/first-name "Bob"}]
                    [:realize]
@@ -139,7 +136,7 @@
   (map :user/email (q/query-operator ctx (second q))))
 
 (deftest email-list-query-operator
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "custom query opertator: " data-source)
       (let [result (query-user data-source [:email-list [:realize [:select :*]]])]
         (is (= (sort result)
@@ -150,14 +147,14 @@
   (map :user/email data))
 
 (deftest email-list-transform
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "transform opertator: " data-source)
       (let [result (query-user data-source [:transform [:realize [:select :*]] :email-list])]
         (is (= (sort result)
                (sort (map :user/email test-data/test-users))))))))
 
 (deftest test-let-operator
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "let opertator: " data-source)
       (let [q '[:let [a [:realize [:select {:user/email "alice@foo.com"}]]
                       b [:realize [:select {:user/email "bob@foo.com"}]]
@@ -175,7 +172,7 @@
   (count data))
 
 (deftest transform-let-count
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "transform opertator in a let: " data-source)
       (let [result (query-user data-source
                                '[:let [a [:realize [:select :*]]
@@ -189,7 +186,7 @@
    :args args})
 
 (deftest transform-let-identity
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "transform opertator in a let with args: " data-source)
       (let [result (query-user data-source
                                '[:let [a [:realize [:select :*]]
@@ -198,7 +195,7 @@
         (is (= (:args result) {:arg1 "arg1"}))))))
 
 (deftest transform-let-binding-in-arg
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "transform opertator in a let with bound args: " data-source)
       (let [result (query-user data-source
                                '[:let [arg-val "arg1"
@@ -208,7 +205,7 @@
         (is (= (:args result) {:arg1 "arg1"}))))))
 
 (deftest paginate
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "paginate in let: " data-source)
       (let [result (query-user data-source
                                '[:let [a [:realize [:select :*]]
@@ -217,7 +214,7 @@
         (is (= (count result) 1))))))
 
 (deftest let-data
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "return a collection from let: " data-source)
       (let [[a b c] (query-user data-source
                                 '[:let [a [1 2 3]
@@ -231,7 +228,7 @@
         (is (= c "X"))))))
 
 (deftest sort-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using sort: " data-source)
       (let [result (query-user data-source
                                (--> [:select :*]
@@ -243,7 +240,7 @@
         (is (apply >= ages))))))
 
 (deftest weighted-sort-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using weighted-sort on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -257,7 +254,7 @@
            (is)))))
 
 (deftest date-filter-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on dates: " data-source)
       (let [creation-times (->> (query-user data-source
                                             (--> [:select :*]
@@ -275,7 +272,7 @@
         (is (= (dec (count creation-times)) (count newer-users)))))))
 
 (deftest filter-gt-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -287,7 +284,7 @@
            (is)))))
 
 (deftest filter-equal-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -299,7 +296,7 @@
            (is)))))
 
 (deftest filter-not-equal-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -311,7 +308,7 @@
            (is)))))
 
 (deftest filter-not-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using not filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -323,7 +320,7 @@
            (is)))))
 
 (deftest filter-contains-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -335,7 +332,7 @@
            (is)))))
 
 (deftest filter-set-contains-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -347,7 +344,7 @@
            (is)))))
 
 (deftest filter-set-contains-mismatch-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -358,7 +355,7 @@
            (is)))))
 
 (deftest filter-contains-or-test
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using filter on a single attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select :*]
@@ -371,7 +368,7 @@
            (is)))))
 
 (deftest select-non-indexed
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using select on a non-indexed attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select {:user/last-name "Foo"}]
@@ -389,7 +386,7 @@
            (is)))))
 
 (deftest select-non-indexed-and-indexed
-  (doseq [data-source #{:in-memory :datomic :sql}]
+  (doseq [data-source #{:in-memory :datomic :sql-in-mem :sql-dynamic}]
     (testing (str "An example of using select on a non-indexed _and_ an indexed attribute: " data-source)
       (->> (query-user data-source
                        (--> [:select {:user/last-name "Foo"

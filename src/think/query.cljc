@@ -3,7 +3,7 @@
 query system can select data from the store as desired and specify the level of
 hydration they need. The system is extensible through multimethods that can
 augment or even arbitrarily transform data items at query time. Each query is
-performed in some context `ctx` that specifys how data is retrieved from the
+performed in some context `ctx` that specifies how data is retrieved from the
 underlying store. There are a couple base assumptions the system makes about the
 underlying data, namely that each data item has `:resource/id` and
 `:resource/type`."} think.query
@@ -61,7 +61,7 @@ underlying data, namely that each data item has `:resource/id` and
 
 (defn apply-filter-logic
   "Recursively walk through a set of operands building up sets based on a few operators.  The primary index
-  here is used solely for generating the entire set of uuid's when we want the set of all items *not* in
+  here is used solely for generating the entire set of UUIDs when we want the set of all items *not* in
   a given query."
   [indexes selection data]
   (let [[index-key selection-match] (first selection)
@@ -413,6 +413,19 @@ values.  Returns a lazy sequence of resource ids."
 
 
 (defn query
-  "Run a generalized query against a data store."
-  [{:keys [indexes] :as ctx} q]
-  (query-operator ctx q))
+  "Run a generalized query against a data store. `ctx` is a context in which to perform the query; a map with one of three shapes:
+    1) Keys are `:primary-index` and then attributes with reverse indexes.
+      - This is the original v1 in-memory shape, it is still supported.
+    2) Key is `:indexes` and value is original v1 in-memory shape as (1).
+    3) Keys are `:selector` and `:realizer`.
+      - values are functions as described near :select and :realize above."
+  [ctx q]
+  (assert (and (map? ctx)
+               (or (:primary-index ctx)
+                   (:indexes ctx)
+                   (and (:selector ctx)
+                        (:realizer ctx))))
+          "Bad query ctx shape. See docstring.")
+  (if (:primary-index ctx)
+    (query-operator {:indexes ctx} q)
+    (query-operator ctx q)))
