@@ -1,20 +1,17 @@
-(ns ^{:author "ThinkTopic, LLC."
-      :doc "The query system is a general purpose system for querying in-memory indexes
-in addition to the datomic backing style.  The intent is to reduce the number of endpoints by providing a
-general purpose language that can specify the shape of filtered, ordered sets of results.  It is composed
-of two possible operations, either a query operator or a compute operator which are currently
-implemented as multimethods.  The source data for the query system is a set of indexes defined near
-the top of the file as well some ability to translate queries to the datomic backing store.
-There are a couple base assumptions the system makes about the underlying data, the first being
-that a query maps to a single resource type (currently either :resource.type/visual-variant
-or :resource.type/brand) and that these types have valid resource id's"}
-    think.query
+(ns ^{:author "ThinkTopic"
+      :doc "A general purpose system for querying stores of data. Users of the
+query system can select data from the store as desired and specify the level of
+hydration they need. The system is extensible through multimethods that can
+augment or even arbitrarily transform data items at query time. Each query is
+performed in some context `ctx` that specifies how data is retrieved from the
+underlying store. There are a couple base assumptions the system makes about the
+underlying data, namely that each data item has `:resource/id` and
+`:resource/type`."} think.query
   (:require
    [clojure.string :as s]
    [clojure.set :as set]
    [clojure.walk :as walk]
-   [clojure.test.check.random :as rand]
-   #?(:clj  [think.query.datomic :as datomic])))
+   [clojure.test.check.random :as rand]))
 
 
 (defn- insert-at
@@ -22,11 +19,10 @@ or :resource.type/brand) and that these types have valid resource id's"}
   (let [[a b] (split-at n coll)]
     (into [] (concat a [item] b))))
 
+
 (defn -->
   "A query thread operator that works just like ->, except for data in vectors.
-
-  (--> :a [:b] [:c] [:d {:foo :bar}]) ; =>  [:d [:c [:b :a]] {:foo :bar}]
-  "
+    ex: (--> :a [:b] [:c] [:d {:foo :bar}]) ; =>  [:d [:c [:b :a]] {:foo :bar}]"
   [init & ops]
   (reduce (fn [q op]
             (insert-at op q 1))
@@ -51,59 +47,21 @@ or :resource.type/brand) and that these types have valid resource id's"}
         (reverse pipeline)))))
 
 
-(defn update-operator
-  "Update one or more operators in a query q of type op by calling the function
-  f on the current operator and replacing it with the result.
-
-  (update-operator [:compute [:realize [:select :*]] :retail-value]
-    :select
-    (fn [x] [:select :THIS-IS-A-NEW-OP]))
-
-     ; => [:compute [:realize [:select :THIS-IS-A-NEW-OP]] :retail-value]
-  "
-  [q op f]
-  (walk/postwalk
-    (fn [node]
-      (if (and (vector? node) (= op (first node)))
-        (f node)
-        node))
-    q))
-
-(defn add-selection-for-key
-  "Add a vector of tags to the select query operator(s) in a query.
-
-    (add-selection-for-key [:select {:product-intelligence/weighted-tags [:or \"burberry\" \"DVG\"]}]
-     :product-intelligence/weighted-tags [\"female\" \"tops\"])
-
-  => [:select {:product-intelligence/weighted-tags [:and [:or \"burberry\" \"DVG\"] \"female\" \"tops\"] }]
-  "
-  [q skey tags]
-  (update-operator q :select
-    (fn [[op selection]]
-      (let [selection (if (= :* selection) {} selection)
-            cur-tags  (skey selection)
-            new-tags (vec (if (nil? cur-tags)
-                       (concat [:and] tags)
-                       (concat [:and cur-tags] tags)))]
-        [:select (assoc selection skey new-tags)]))))
-
 (defn- filter-by-selection
   "Linear scan over data for a given selection"
-  [{:keys [:default-index :primary-index] :as indexes} selection data]
-  (if (= default-index :datomic)
-    (do
-      #?(:clj (datomic/datomic-query (:db indexes) selection data)))
-    (let [[index-key selection-match] (first selection)
-          path (if (sequential? index-key) index-key [index-key])]
-      (->> data
-           (map primary-index)                              ;; realize
-           (filter #(= selection-match (get-in % path)))    ;; linear scan / filter
-           (map :resource/id)
-           (into #{})))))
+  [{:keys [:primary-index] :as indexes} selection data]
+  (let [[index-key selection-match] (first selection)
+        path (if (sequential? index-key) index-key [index-key])]
+    (->> data
+         (map primary-index)                             ;; realize
+         (filter #(= selection-match (get-in % path)))   ;; linear scan / filter
+         (map :resource/id)
+         (into #{}))))
+
 
 (defn apply-filter-logic
   "Recursively walk through a set of operands building up sets based on a few operators.  The primary index
-  here is used solely for generating the entire set of uuid's when we want the set of all items *not* in
+  here is used solely for generating the entire set of UUIDs when we want the set of all items *not* in
   a given query."
   [indexes selection data]
   (let [[index-key selection-match] (first selection)
@@ -121,6 +79,7 @@ or :resource.type/brand) and that these types have valid resource id's"}
       (if sub-index
         (sub-index selection-match)
         (filter-by-selection indexes selection data)))))
+
 
 (defn- index-query
   "Run a query against the in-memory indexes.
@@ -148,49 +107,67 @@ values.  Returns a lazy sequence of resource ids."
 
 (defn do-selection
   "Given a the set of indexes for a given type and a selection return a set of uuids.
-indexes: a map of keyword to index for a given resource type.
-selection: map of key-value pairs where value can either be a specific value or
-it could possibly be a nested set of things like 'and' and 'or' operators with
-potentially more criteria."
+    indexes: a map of keyword to index for a given resource type.
+    selection: map of key-value pairs where value can either be a specific value
+      or it could possibly be a nested set of things like 'and' and 'or' operators
+      with potentially more criteria."
   [indexes selection]
   (let [fast-keys    (set (keys indexes))
         indexed-keys (filter fast-keys (keys selection))
         pred-keys    (remove fast-keys (keys selection))]
     (index-query selection pred-keys indexes indexed-keys)))
 
-(defmulti query-operator (fn [indexes q] (first q)))
+
+(defmulti query-operator (fn [ctx q] (first q)))
+
 
 (defn- maybe-query
   "Test if the multi-method implementation is there, otherwise just pass the data through."
-  [indexes q]
+  [{:keys [indexes] :as ctx} q]
   (if (and (sequential? q)
            (keyword? (first q))
-           (get-method query-operator ((.dispatchFn ^clojure.lang.MultiFn query-operator) indexes q)))
-    (query-operator indexes q)
+           (get-method query-operator
+                       ((.dispatchFn ^clojure.lang.MultiFn query-operator) indexes q)))
+    (query-operator ctx q)
     q))
 
+
+;; Select
+;; Get a set of resource ids from a data store
+;; A selector is a function that takes a map like `:select` and returns a set of `:resource/id`s
 (defmethod query-operator :select
-  [indexes [_ selection]]
-  (if (= selection :*)
-    (set (keys (:primary-index indexes)))
-    (set (do-selection indexes selection))))
+  [{:keys [indexes selector] :as ctx} [_ selection]]
+  (if selector
+    (selector selection)
+    (if (= selection :*)
+      (set (keys (:primary-index indexes)))
+      (set (do-selection indexes selection)))))
 
+
+;; Realize
+;; Turns a set of resource ids into actual resources
+;; A realizer is a function that takes a set of `:resource/id`s and an optional datomic-like hydration and returns a sequence of maps
+;; TODO: Optional hydration
 (defmethod query-operator :realize
-  [indexes q]
-  (let [id-set (query-operator indexes (second q))]
-    (map (:primary-index indexes) id-set)))
+  [{:keys [indexes realizer] :as ctx} q]
+  (let [id-set (query-operator ctx (second q))]
+    (if realizer
+      (realizer id-set)
+      (map (:primary-index indexes) id-set))))
 
 
-; Sort the input sequence
-;  [:sort q {:path [:product/price] :direction :ascending}]
+;; Sort the input sequence
+;;  [:sort q {:path [:product/price] :direction :ascending}]
 (defmethod query-operator :sort
-  [indexes q]
-  (let [{:keys [path direction] :or {direction :ascending} :as options} (last q)
-        data (query-operator indexes (second q))
+  [ctx q]
+  (let [{:keys [path direction]
+         :or {direction :ascending}} (last q)
+        data (query-operator ctx (second q))
         sorted (sort-by #(get-in % path) data)]
     (if (= direction :ascending)
       sorted
       (reverse sorted))))
+
 
 (defn- item->score
   [params item]
@@ -198,16 +175,17 @@ potentially more criteria."
                   (* weight normalizer (get-in item path) (if (= :descending direction) -1 1)))
                 params)))
 
+;; Weighted Sort
+;; Allows sorting by multiple attributes according to specified weights
 (defmethod query-operator :weighted-sort
-  [indexes [_ subquery params]]
-  (let [data (query-operator indexes subquery)
+  [ctx [_ subquery params]]
+  (let [data (query-operator ctx subquery)
         params (for [{:keys [path] :as p} params]
                  (assoc p :normalizer (/ 1.0 (+ 1e-10 (apply max (map #(get-in % path) data))))))]
     (sort-by (partial item->score params) data)))
 
-;; Hydration
-; [:hydrate q [:product/name :product/id {:product/variants [:product/sku]}]]
-(defn do-hydrate
+
+(defn- do-hydrate
   [data k]
   (if (sequential? data)
     (map #(do-hydrate % k) data)
@@ -220,15 +198,30 @@ potentially more criteria."
                                      [child-key (do-hydrate (get data child-key) child-hydration)]))])]
       v)))
 
+
 (defn hydrate
   [data hydration]
   (into {} (mapcat #(do-hydrate data %1) hydration)))
 
+
+;; Hydration
+;; Specify hydration using the datomic pull syntax.
+;; [:hydrate q [:product/name :product/id {:product/variants [:product/sku]}]]
 (defmethod query-operator :hydrate
-  [indexes q]
-  (let [data (query-operator indexes (second q))
+  [ctx q]
+  (let [data (query-operator ctx (second q))
         hydration (last q)]
-    (map #(hydrate % hydration) data)))
+      (map #(hydrate % hydration) data)))
+
+
+;; Get
+;; calls `clojure.core/get` on the result of the data with the specified key
+(defmethod query-operator :get
+  [ctx [_ sub-query k]]
+  (let [data (query-operator ctx sub-query)
+        res (get data k)]
+    (get data k)))
+
 
 (defn- reweight-mixes
   "Takes a list of [weight elems] and normalizes the weights for a roulette. For example, given:
@@ -238,7 +231,6 @@ potentially more criteria."
   The reason for this is that we want to be able to generate a random number
   between 0 and 1 and quickly walk through the seq to find the relevant seq of
   elements.
-
   Removes pairs with 0 weight or empty elems."
   [mixes]
   (let [mixes (remove (fn [[weight elems]] (or (zero? weight)
@@ -251,12 +243,12 @@ potentially more criteria."
                        [[] 0.0]
                        mixes))))))
 
-(defn mix-sampler*
+
+(defn- mix-sampler*
   "Given a random number generator and a seq of tuples [weight elems], where
   the weights have been normalized to cumulatively reach 1.0 (as per
   reweight-mixes), returns a seq composed of the items of all elems seqs drawn
   randomly from the tuples.
-
   Each element is only drawn once; order is preserved between elements of the
   same tuple. this is a bit like a randomized clojure.core/interleave, except
   that it will exhaust all seqs rather than stop at the first empty one."
@@ -273,73 +265,78 @@ potentially more criteria."
       (lazy-seq (cons next-item
                       (mix-sampler* rgen new-mixes))))))
 
+
 (defn mix-sampler
   "Calls mix-sampler* with fixed random seed so results are deterministic."
   [mixes]
   (mix-sampler* (rand/make-random 0) (reweight-mixes mixes)))
 
+
 ;; Weighted mixture operator
 ;; [:mix [[0.2 <query>]
 ;;        [0.5 <query>]]]
 (defmethod query-operator :mix
-  [indexes [_ mixes]]
+  [ctx [_ mixes]]
   (->> mixes
        (reweight-mixes)
        (reduce (fn [mem [weight q]]
-                 (conj mem [weight (query-operator indexes q)]))
+                 (conj mem [weight (query-operator ctx q)]))
                [])
        (mix-sampler)))
 
-;; The query operator generally acts as the root operator, and provides offset and limit
-;; functionality.
-; [:query <sub-query>
-;  {:offset <int>
-;   :limit <int>}]
-(defmethod query-operator :query
-  [indexes q]
+
+;; Pagination with an offset and limit.
+;;   [:paginate <sub-query>
+;;    {:offset <int>
+;;     :limit <int>}]
+(defmethod query-operator :paginate
+  [ctx q]
   (let [{:keys [offset limit] :or {offset 0} :as options} (last q)
-        data (query-operator indexes (second q))
+        data (query-operator ctx (second q))
         data (if offset (drop offset data) data)
         data (if limit (take limit data) data)]
     data))
 
-; ; Compute operator (to compute values used for sorting later)
-; [:compute <sub-query> [:brand-dna-ranking {:query ...}]]
+
 (defmulti compute-operator
-  "Compute a value given a record.  The result will be assoced on to the record
+  "Compute a value given a record. The result will be assoced on to the record
   by the compute query operator."
   (fn [& args] (first args)))
 
-;;[:compute sub-query c-type args?]
+
+;; Compute
+;; Given a data item, compute a derived value and assoc it on. Extensible as the
+;; multi-method `compute-operator` and associates the same-named key into the
+;; item
 (defmethod query-operator :compute
-  [indexes q]
+  [ctx q]
   (let [c-type (nth q 2)
         args (->> q
                   (split-at 3)
                   last)]
-    (for [result (query-operator indexes (second q))]
+    (for [result (query-operator ctx (second q))]
       (assoc result c-type (apply compute-operator c-type result args)))))
+
 
 (defmulti transform-operator
   (fn [op data & args]
     op))
 
-;; Given an offset and a limit, drop the offset and take the limit from the sequence of results.
-(defmethod transform-operator :paginate
-  [_ data & {:keys [offset limit]}]
-  (as->
-    (if offset (drop offset data) data) data
-    (if limit (take limit data) data)))
 
+;; Transform
+;; Arbitrary transformations, extensible as the multi-method `transform-operator`
 (defmethod query-operator :transform
-  [indexes [_ q op & args]]
-  (let [q-result (query-operator indexes q)]
-    (apply transform-operator op q-result (map (partial maybe-query indexes) args))))
+  [ctx [_ q op & args]]
+  (let [q-result (query-operator ctx q)]
+    (apply transform-operator op q-result (map (partial maybe-query ctx) args))))
+
 
 (defn predicate->fn
-  "e.g. [:and [[:retail-value] :> 10]
-              [[:retail-value] :< 20]]
-   or [[:color-distance] :<= 0.1]"
+  "Examples:
+     [:and [[:retail-value] :> 10]
+            [[:retail-value] :< 20]]
+
+     [[:color-distance] :<= 0.1]"
   [predicate]
   (case (first predicate)
     :and (apply every-pred (map predicate->fn (rest predicate)))
@@ -366,19 +363,21 @@ potentially more criteria."
         :=  #(= (get-in % path) v)
         :not=  #(not= (get-in % path) v)
         :contains #(let [haystack (get-in % path)]
-                     (if (string? haystack)
+                     (if (and (string? haystack) (string? v))
                        (not= (.indexOf haystack v) -1)
                        ((set haystack) v)))))))
 
+
 (defmethod query-operator :filter
-  [indexes [_ sub-query predicate]]
+  [ctx [_ sub-query predicate]]
   (filter (predicate->fn predicate)
-          (query-operator indexes sub-query)))
+          (query-operator ctx sub-query)))
 
 
 (defmethod query-operator :let-binding
-  [indexes [_ bound-val*]]
+  [ctx [_ bound-val*]]
   @bound-val*)
+
 
 (defn build-let-result
   [bind-vals result]
@@ -396,190 +395,37 @@ potentially more criteria."
       @(bind-vals result)
       result)))
 
+
 (defmethod query-operator :let
-  [indexes [_ bindings result]]
+  [ctx [_ bindings result]]
   (let [bindings (partition 2 bindings)
         bind-vals (reduce (fn [bind-vals [b-name b-query]]
-                            (let [new-query (walk/postwalk (fn [x] (if (contains? bind-vals x)
-                                                                     [:let-binding (bind-vals x)]
-                                                                     x))
-                                                           b-query)]
-                              (assoc bind-vals b-name (delay (maybe-query indexes new-query)))))
+                            (let [new-query (walk/postwalk
+                                              (fn [x] (if (contains? bind-vals x)
+                                                        [:let-binding (bind-vals x)]
+                                                        x))
+                                              b-query)]
+                              (assoc bind-vals b-name
+                                     (delay (maybe-query ctx new-query)))))
                           {}
                           bindings)]
     (build-let-result bind-vals result)))
 
+
 (defn query
-    "Run a generalized query against either the in-memory indexes or against datomic.
-
-resource-type: The type of resource to query against; this defines the set of indexes that
-  would potentially be used.  Specifically either :resource.type/visual-variant or
-  :resource.type/brand
-
-q: The query to run.
-
-
-
-The query is a set of nested vectors of the form:
-  [:hydrate
-     [:weighted-sort [:compute
-                        [:realize
-                          [:select :*]]
-                        :retail-value]
-                     [{:direction :descending, :path [:retail-value], :weight 1.0}]]
-     [:product/name :retail-value]]
-
-There is a utility function defined that allows the same query above to be defined in the form of:
-(q/--> [:select :*]
-       [:realize]
-       [:compute :retail-value]
-       [:weighted-sort [{:path [:retail-value]
-                         :weight 1.0
-                         :direction :descending}]]
-       [:hydrate [:product/name
-                  :retail-value]])
-
-In other words, you can define the query in an imperative style and the operator will do the required nesting.
-
-
-Each query operator is in the form of:
-  [operator-keyword & args]
-
-where args may in fact be sub-queries or arguments specific to the query.  The examples below assum the above
-nesting function (-->) has been used to form the query.
-
-Current operators are:
-:select - select a set of uuid's from a set of indexes.  The args are a map of index keywords to query values
-  where query values can be either a scalar value or a filter value such as [:and a b] where a b can be sub-filters
-  or scalar values.  Note that the keys themselves may be complex in which case they will find nested items in
-  the selected set of objects.
-
-  For resource.type/visual-variant the current set of indexes are:
-    Sku->visual-variant resource id
-    :product/sku
-    product->visual variant
-    :product/id
-    tag uuid -> visual variant uuid
-    :product-intelligence/weighted-tags
-    brand canonical name->visual variant
-    [:product/brand :brand/canonical-name]
-    resource id
-    resource/id
-
-  For resource.type/brand there is only the primary index and a resource id index.
-
-
-  [:select {:product-intelligence/weighted-tags
-                             [:and
-                              [:not \"ultra tight\"]
-                              [:or \"leia buns\" \"chewbacca costume\"]]}]
-
-  [:select {:product/quarantined? true
-            [:product/brand :brand/canonical-name] \"correlian outfitters\"
-            :product-intelligence/weighted-tags \"chewbacca costume\"}]
-
-:realize - realize the set of uuid; this expands a uuid into a full item where item is a map of key value pairs.  This
-  operator takes no arguments.
-
-:sort - sort the results.  sort takes a map of two parameters for the path to find the sort key which must be ordered
-  comparable and the direction.
-  [:sort {:path [:retail-value]
-          :direction :descending}]
-
-:weighted-sort - take a set of sort criteria (path,direction,weight) and sort the dataset based on a sum of
-  of the numeric values taken from the paths.  The values are normalized such that the min of each path is 0 and
-  the max of each path is 1 so the values can be compared on an equal basis.
-  [:weighted-sort [{:path [:retail-value]
-                  :weight 0.95
-                  :direction :ascending}
-                 {:path [:sort-tags]
-                  :weight 0.05
-                  :direction :descending}]]
-
-:hydrate - trim the realized data into the desired shape.  This has the opposite meaning as the datomic
-  pull in that in this case it is doing a trimming operation and is intended to be applied after a realize
-  call.  It will ensure the data has precisely the shape defined in the hydration and it's syntax a simplified
-  datomic pull syntax.
-  [:hydrate [:product/name
-             :retail-value
-             :product-intelligence/weighted-tags]]
-
-:mix - Given two selected streams of data mix them such that your overall result
-  is a percentage of each result.  Thus if you have two streams and your mix weights
-  are 0.2 and 0.8 you will get 20% of random data from the first stream and then
-  80% of the random data from the second stream.
-  [:mix [[0.5 (--> [:select
-                    {:product-intelligence/weighted-tags
-                     [:and
-                      #uuid \"7dd9aa68-4654-4d21-a5e9-5ab5d9141d15\"
-                      #uuid \"6cc9aa68-4654-4d21-a5e9-5ab5d9141d14\"]}]
-                   [:realize]
-                   [:compute :color-distance [155 43 43]]
-                   [:sort {:path [:color-distance] :direction :ascending}]
-                   [:hydrate [:resource/id]])]
-         [0.3 (--> [:select
-                    {:product-intelligence/weighted-tags
-                     [:and
-                      #uuid \"9ee9aa68-4654-4d21-a5e9-5ab5d9141e16\"
-                      #uuid \"2bb9aa68-4654-4d21-a5e9-5ab5d9141e45\"]}]
-                   [:realize]
-                   [:compute :sort-tags {\"shoes\" 0.91}]
-                   [:sort {:path [:sort-tags]:direction :descending}]
-                   [:hydrate [:resource/id]])]]]
-
-:query - The query operator generally acts as the root operator, and provides offset and limit functionality.
-  [:query <sub-query>
-    {:offset <int>
-     :limit <int>}]
-
-:compute - compute an additional value and store it each object in the stream under a key of
-  the name of the compute operator.  Operators are:
-  :retail-value - The sum of the price multiplied by the number of items in stock for each variant.
-  :sort-tags - The sum of the chosen tag weights multiplied by the associated values.
-    [:compute :sort-tags [[\"leia buns\" 1.0]]]
-  :color-distance - The distance from the selected color of the product in cie-lab space:
-    [:compute :color-distance [155 43 43]]
-
-
-Examples:
-
-;; Sort the entire set of all products by retail value ascending and hydrate name and retail value.
-(query :resource.type/visual-variant
- (-->   [:select :*]
-        [:realize]
-        [:compute :retail-value]
-        [:weighted-sort [{:path [:retail-value]
-                          :weight 1.0
-                          :direction :ascending}]]
-        [:hydrate [:product/name
-                   :retail-value]]))
-
-;; Find all products from the \"correlian outfitters\" and sort them by how much
-;; chewbacca costume they have.
-(query :resource.type/visual-variant
-  [:hydrate
-    [:sort
-     [:compute
-      [:realize [:select {[:product/brand :brand/canonical-name] \"correlian outfitters\"}]]
-      :sort-tags {\"chewbacca costume\" 1.0}]
-     {:path [:sort-tags]
-      :direction :descending}]
-  [:product/name
-   :product/visual-id
-   {:product/variants [:product/sku]}]]
-
-
-;; The all product names and resource ids that have either the
-;; \"leia buns\" tag or the \"chewbacca constume\" tag but not
-;; the \"ultra tight\" way.
-
-(query :resource.type/visual-variant
-  (--> [:select {:product-intelligence/weighted-tags
-                 [:and
-                   [:not \"ultra tight\"]
-                   [:or \"leia buns\" \"chewbacca costume\"]]}]
-       [:realize]
-       [:hydrate [:product/name :resource/id]])
-"
-  [resource-type indexes q]
-  (query-operator indexes q))
+  "Run a generalized query against a data store. `ctx` is a context in which to perform the query; a map with one of three shapes:
+    1) Keys are `:primary-index` and then attributes with reverse indexes.
+      - This is the original v1 in-memory shape, it is still supported.
+    2) Key is `:indexes` and value is original v1 in-memory shape as (1).
+    3) Keys are `:selector` and `:realizer`.
+      - values are functions as described near :select and :realize above."
+  [ctx q]
+  (assert (and (map? ctx)
+               (or (:primary-index ctx)
+                   (:indexes ctx)
+                   (and (:selector ctx)
+                        (:realizer ctx))))
+          "Bad query ctx shape. See docstring.")
+  (if (:primary-index ctx)
+    (query-operator {:indexes ctx} q)
+    (query-operator ctx q)))

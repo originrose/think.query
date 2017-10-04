@@ -1,48 +1,156 @@
 (ns think.query.test-util
-  (:require [datomic.api :as d]
-            [think.query.test-schema :as test-schema]
-            [think.query.test-data :as test-data]))
+  (:require [clojure.string :as s]
+            [datomic.api :as d]
+            [clojure.java.jdbc :as jdbc]
+            [honeysql.core :as sql]
+            [honeysql.helpers :refer [select from]]
+            [think.query.test-data :as test-data])
+  (:import [java.util UUID]))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Datomic
 (def ^:dynamic *datomic-uri* nil)
 
-(defn- import-test-data
-  [datomic-uri]
-  (->> test-data/test-users
-       (map #(assoc %
-                    :resource/id (d/squuid)
-                    :resource/type :resource.type/user
-                    :db/id (d/tempid :db.part/db)))
-       (d/transact (d/connect datomic-uri))
-       deref))
-
-(defn- test-system
-  [test-fn setup-fn]
-  (let [datomic-uri (str "datomic:mem://think-query.test.db." (d/squuid))]
-    (d/create-database datomic-uri)
-    (with-bindings {#'*datomic-uri* datomic-uri}
-      (try
-        @(d/transact (d/connect datomic-uri) (concat test-schema/resource-schema test-schema/user-schema))
-        (setup-fn datomic-uri)
-        (test-fn)))))
-
-(defn with-db
-  [test-fn]
-  (test-system test-fn import-test-data))
-
-(defn with-clean-db
-  [test-fn]
-  (test-system test-fn identity))
-
-(defn db-conn
-  "Returns a datomic connection to the (current) test database fixture."
+(defn conn
   []
   (d/connect *datomic-uri*))
 
 (defn db
-  "Returns a datomic database."
   []
-  (d/db (d/connect *datomic-uri*)))
+  (d/db (conn)))
 
-(defn user->resource-id
-  [user]
-  (:resource/id (d/pull (db) [:resource/id] [:user/email (:user/email user)])))
+(def resource-schema
+  [{:db/id #db/id[:db.part/db]
+    :db/ident :resource/id
+    :db/valueType :db.type/uuid
+    :db/unique :db.unique/identity
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :resource/type
+    :db/valueType :db.type/ref
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}])
+
+(def user-schema
+  [{:db/id #db/id[:db.part/db]
+    :db/ident :resource.type/user}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/first-name
+    :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/last-name
+    :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/sex
+    :db/valueType :db.type/keyword
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/friends
+    :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/many
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/email
+    :db/unique :db.unique/identity
+    :db/valueType :db.type/string
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/created
+    :db/valueType :db.type/instant
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}
+
+   {:db/id #db/id[:db.part/db]
+    :db/ident :user/age
+    :db/valueType :db.type/long
+    :db/cardinality :db.cardinality/one
+    :db.install/_attribute :db.part/db}])
+
+(defn- setup-datomic
+  []
+  @(d/transact (conn) (concat resource-schema user-schema))
+  @(d/transact (conn) test-data/test-users))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SQL
+(def ^:dynamic *sql-db* nil)
+
+(defn sql-db
+  []
+  *sql-db*)
+
+(defn- user->sql-map
+  "Convert clojure types to H2 SQL friendly ones."
+  [{:keys [resource/id
+           user/first-name user/last-name
+           user/sex user/friends
+           user/email user/created user/age]}]
+  {:id id
+   :firstname first-name
+   :lastname last-name
+   :sex (str sex)
+   :friends (pr-str friends)
+   :email email
+   :created created
+   :age age})
+
+(defn sql-map->user
+  "Convert sql query results back to rich clojure maps."
+  [{:keys [age created email firstname lastname friends sex id]}]
+  {:resource/id id
+   :resource/type :resource.type/user
+   :user/first-name firstname
+   :user/last-name lastname
+   :user/sex (clojure.edn/read-string sex)
+   :user/email email
+   :user/age age
+   :user/friends (clojure.edn/read-string friends)
+   :user/created created})
+
+(defn keyword->column-name
+  [k]
+  (keyword (.replace (name k) "-" "")))
+
+(def sql-schema (format "CREATE TABLE user (%s);"
+                        (->> ["id uuid"
+                              "firstname varchar"
+                              "lastname varchar"
+                              "sex varchar"
+                              "friends varchar"
+                              "email varchar"
+                              "created timestamp"
+                              "age int"]
+                             (s/join ","))))
+
+(defn- setup-sql
+  []
+  (jdbc/db-do-commands *sql-db* sql-schema)
+  (jdbc/insert-multi! *sql-db* :user (map user->sql-map test-data/test-users)))
+
+(defn db-fixture
+  [test-fn]
+  (let [datomic-uri (str "datomic:mem://think-query.test.db." (d/squuid))
+        sql-db {:classname   "org.h2.Driver"
+                :subprotocol "h2:mem"
+                :subname     (str (UUID/randomUUID) ";DB_CLOSE_DELAY=-1")}]
+    (d/create-database datomic-uri)
+    (with-bindings {#'*datomic-uri* datomic-uri
+                    #'*sql-db* sql-db}
+      (try
+        (setup-datomic)
+        (setup-sql)
+        (test-fn)))))

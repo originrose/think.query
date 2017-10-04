@@ -1,7 +1,7 @@
 (ns think.query.datomic
   (:require [clojure.set :as set]))
 
-(defn default-datomic-index
+(defn datomic-primary-index
   "Provides the default datomic index based on resource type"
   [db resource-type]
   (require 'datomic.api)

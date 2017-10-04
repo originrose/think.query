@@ -1,0 +1,157 @@
+The query is a set of nested vectors of the form:
+  [:hydrate
+     [:weighted-sort [:compute
+                        [:realize
+                          [:select :*]]
+                        :retail-value]
+                     [{:direction :descending, :path [:retail-value], :weight 1.0}]]
+     [:product/name :retail-value]]
+
+There is a utility function defined that allows the same query above to be defined in the form of:
+(q/--> [:select :*]
+       [:realize]
+       [:compute :retail-value]
+       [:weighted-sort [{:path [:retail-value]
+                         :weight 1.0
+                         :direction :descending}]]
+       [:hydrate [:product/name
+                  :retail-value]])
+
+In other words, you can define the query in an imperative style and the operator will do the required nesting.
+
+
+Each query operator is in the form of:
+  [operator-keyword & args]
+
+where args may in fact be sub-queries or arguments specific to the query.  The examples below assum the above
+nesting function (-->) has been used to form the query.
+
+Current operators are:
+:select - select a set of uuid's from a set of indexes.  The args are a map of index keywords to query values
+  where query values can be either a scalar value or a filter value such as [:and a b] where a b can be sub-filters
+  or scalar values.  Note that the keys themselves may be complex in which case they will find nested items in
+  the selected set of objects.
+
+  For resource.type/visual-variant the current set of indexes are:
+    Sku->visual-variant resource id
+    :product/sku
+    product->visual variant
+    :product/id
+    tag uuid -> visual variant uuid
+    :product-intelligence/weighted-tags
+    brand canonical name->visual variant
+    [:product/brand :brand/canonical-name]
+    resource id
+    resource/id
+
+  For resource.type/brand there is only the primary index and a resource id index.
+
+
+  [:select {:product-intelligence/weighted-tags
+                             [:and
+                              [:not \"ultra tight\"]
+                              [:or \"leia buns\" \"chewbacca costume\"]]}]
+
+  [:select {:product/quarantined? true
+            [:product/brand :brand/canonical-name] \"correlian outfitters\"
+            :product-intelligence/weighted-tags \"chewbacca costume\"}]
+
+:realize - realize the set of uuid; this expands a uuid into a full item where item is a map of key value pairs.  This
+  operator takes no arguments.
+
+:sort - sort the results.  sort takes a map of two parameters for the path to find the sort key which must be ordered
+  comparable and the direction.
+  [:sort {:path [:retail-value]
+          :direction :descending}]
+
+:weighted-sort - take a set of sort criteria (path,direction,weight) and sort the dataset based on a sum of
+  of the numeric values taken from the paths.  The values are normalized such that the min of each path is 0 and
+  the max of each path is 1 so the values can be compared on an equal basis.
+  [:weighted-sort [{:path [:retail-value]
+                  :weight 0.95
+                  :direction :ascending}
+                 {:path [:sort-tags]
+                  :weight 0.05
+                  :direction :descending}]]
+
+:hydrate - ensure data has the desired shape. The syntax intentionally resembles datomic's pull syntax.
+  [:hydrate [:product/name
+             :retail-value
+             :product-intelligence/weighted-tags]]
+
+:mix - Given two selected streams of data mix them such that your overall result
+  is a percentage of each result.  Thus if you have two streams and your mix weights
+  are 0.2 and 0.8 you will get 20% of random data from the first stream and then
+  80% of the random data from the second stream.
+  [:mix [[0.5 (--> [:select
+                    {:product-intelligence/weighted-tags
+                     [:and
+                      #uuid \"7dd9aa68-4654-4d21-a5e9-5ab5d9141d15\"
+                      #uuid \"6cc9aa68-4654-4d21-a5e9-5ab5d9141d14\"]}]
+                   [:realize]
+                   [:compute :color-distance [155 43 43]]
+                   [:sort {:path [:color-distance] :direction :ascending}]
+                   [:hydrate [:resource/id]])]
+         [0.3 (--> [:select
+                    {:product-intelligence/weighted-tags
+                     [:and
+                      #uuid \"9ee9aa68-4654-4d21-a5e9-5ab5d9141e16\"
+                      #uuid \"2bb9aa68-4654-4d21-a5e9-5ab5d9141e45\"]}]
+                   [:realize]
+                   [:compute :sort-tags {\"shoes\" 0.91}]
+                   [:sort {:path [:sort-tags]:direction :descending}]
+                   [:hydrate [:resource/id]])]]]
+
+:paginate - The paginate operator provides offset and limit functionality.
+  [:paginate <sub-query>
+    {:offset <int>
+     :limit <int>}]
+
+:compute - compute an additional value and store it each object in the stream under a key of
+  the name of the compute operator.  Operators are:
+  :retail-value - The sum of the price multiplied by the number of items in stock for each variant.
+  :sort-tags - The sum of the chosen tag weights multiplied by the associated values.
+    [:compute :sort-tags [[\"leia buns\" 1.0]]]
+  :color-distance - The distance from the selected color of the product in cie-lab space:
+    [:compute :color-distance [155 43 43]]
+
+
+Examples:
+
+;; Sort the entire set of all products by retail value ascending and hydrate name and retail value.
+(query :resource.type/visual-variant
+ (-->   [:select :*]
+        [:realize]
+        [:compute :retail-value]
+        [:weighted-sort [{:path [:retail-value]
+                          :weight 1.0
+                          :direction :ascending}]]
+        [:hydrate [:product/name
+                   :retail-value]]))
+
+;; Find all products from the \"correlian outfitters\" and sort them by how much
+;; chewbacca costume they have.
+(query :resource.type/visual-variant
+  [:hydrate
+    [:sort
+     [:compute
+      [:realize [:select {[:product/brand :brand/canonical-name] \"correlian outfitters\"}]]
+      :sort-tags {\"chewbacca costume\" 1.0}]
+     {:path [:sort-tags]
+      :direction :descending}]
+  [:product/name
+   :product/visual-id
+   {:product/variants [:product/sku]}]]
+
+
+;; The all product names and resource ids that have either the
+;; \"leia buns\" tag or the \"chewbacca constume\" tag but not
+;; the \"ultra tight\" way.
+
+(query :resource.type/visual-variant
+  (--> [:select {:product-intelligence/weighted-tags
+                 [:and
+                   [:not \"ultra tight\"]
+                   [:or \"leia buns\" \"chewbacca costume\"]]}]
+       [:realize]
+       [:hydrate [:product/name :resource/id]])
