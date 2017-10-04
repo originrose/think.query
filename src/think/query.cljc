@@ -11,7 +11,91 @@ underlying data, namely that each data item has `:resource/id` and
    [clojure.string :as s]
    [clojure.set :as set]
    [clojure.walk :as walk]
-   [clojure.test.check.random :as rand]))
+   [clojure.test.check.random :as rand]
+   [om.next.impl.parser :as parser]))
+
+
+(defprotocol QueryIndex
+  (index-key
+    [this] "Return the key name for this index.")
+  (index-type
+    [this] "Return the type of index."))
+
+(defprotocol ResourceIndex
+  (resource-ids [this] "Get a seq of all resource IDs.")
+  (resources [this] "Get a seq of all resource records.")
+  (get-resource [this k] "Get a single resource record by key."))
+
+(defprotocol KeySetIndex
+  (get-resource-ids [this k] "Get a set of resource IDs by key."))
+
+(defprotocol NumericIndex
+  (v= [this k v] "Get a set of resource IDs where the value of (= (k res) v).")
+  (v< [this k v] "Get a set of resource IDs where the value of (< (k res) v).")
+  (v> [this k v] "Get a set of resource IDs where the value of (> (k res) v).")
+  (v<= [this k v] "Get a set of resource IDs where the value of (<= (k res) v).")
+  (v>= [this k v] "Get a set of resource IDs where the value of (>= (k res) v)."))
+
+
+(defn map-resource-index
+  [m]
+  (reify
+    ResourceIndex
+    (resource-ids [this] (keys m))
+    (resources    [this] (vals m))
+    (get-resource [this k] (get m k))))
+
+
+(defn reverse-index
+  "Build a reverse index of the value of (get m k) to sets of :resource/id."
+  [records primary-key index-key]
+  (let [idx (group-by index-key records)
+        idx (into {} (for [[k vs] idx]
+                       [k (set (map primary-key vs))]))]
+    (reify KeySetIndex
+      (get-resource-ids [this k] (get idx k)))))
+
+
+(defn map-comparator
+  [k]
+  (fn [a b]
+    (< (get a k) (get b k))))
+
+
+(defn numeric-index
+  "Build a numeric index to support fast queries on numerical values (=, >, <, etc...)"
+  [records primary-key index-key]
+  (let [key-vals (map #(select-keys % [primary-key index-key]) records)
+        index (into [] (sort-by index-key key-vals))]
+    (reify NumericIndex
+      (v= [this k v]
+        (let [i (java.util.Collections/binarySearch
+                 index {index-key v} (map-comparator k))]
+          (map primary-key (take-while #(= v (get % k)) (drop i index)))))
+
+      (v< [this k v]
+        (map primary-key
+             (filter #(< (get % k) v) index)))
+
+      (v> [this k v]
+        (let [i (java.util.Collections/binarySearch
+                 index {index-key v} (map-comparator k))]
+          (map primary-key (filter #(> (get % k) v) (drop i index)))))
+
+      (v<= [this k v]
+        (map primary-key
+             (filter #(<= (get % k) v) index)))
+
+      (v>= [this k v]
+        (let [i (java.util.Collections/binarySearch
+                 index {index-key v} (map-comparator k))]
+          (map primary-key (drop i index)))))))
+
+
+(defn map-index
+  "Build an index on a map of {resource-id resource} records, optionally with
+  pre-computed reverse and numerical indexes."
+  [res-map & [index-spec]])
 
 
 (defn- insert-at
@@ -119,6 +203,36 @@ values.  Returns a lazy sequence of resource ids."
 
 
 (defmulti query-operator (fn [ctx q] (first q)))
+
+
+(defn query-api-reader
+  [{:keys [api parser query ast resource] :as ctx} key params]
+  ;;(println (format "query[%s]: %s" key query))
+  (let [v (cond
+            (contains? api key) (apply (get api key) ctx params)
+            (contains? resource key) (get resource key)
+            :default resource)]
+    ;;(println "v: " v)
+    (cond
+      (map? v) {:value (parser (assoc ctx :resource v) query)}
+      (sequential? v) {:value (mapv #(parser (assoc ctx :resource %) query) v)}
+      :default {:value v})))
+
+
+(defn mutator
+  [env key params]
+  {:action (fn [])})
+
+
+(defmethod query-operator :query
+  [{:keys [api] :as ctx} [_ query]]
+  (let [p (parser/parser {:read query-api-reader :mutate mutator})]
+    (p ctx query)))
+
+
+(defmethod query-operator :mutate
+  [{:keys [mutators] :as ctx} [_ mutation & args]]
+  (apply (get mutators mutation) ctx args))
 
 
 (defn- maybe-query
