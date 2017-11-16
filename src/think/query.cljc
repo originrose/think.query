@@ -75,7 +75,7 @@ underlying data, namely that each data item has `:resource/id` and
         (case (first selection-match)
           :and (apply set/intersection sub-query-result)
           :or  (apply set/union sub-query-result)
-          :not (apply set/difference data sub-query-result)))
+          :not (apply set/difference (set data) sub-query-result)))
       (if sub-index
         (sub-index selection-match)
         (filter-by-selection indexes selection data)))))
@@ -97,12 +97,12 @@ values.  Returns a lazy sequence of resource ids."
                    (if (some #{item} indexed-keys)
                      (set/intersection eax new-items)
                      new-items)))
-               (let [resource-id-set (set (keys (:primary-index indexes)))]
+               (let [resource-id-seq (keys (:primary-index indexes))]
                  (if (empty? indexed-keys)
-                   resource-id-set
+                   resource-id-seq
                    (apply-filter-logic indexes
                                        (select-keys selection [(first indexed-keys)])
-                                       resource-id-set))))))
+                                       resource-id-seq))))))
 
 
 (defn do-selection
