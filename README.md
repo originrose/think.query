@@ -5,6 +5,12 @@
 
 A query language for clojure.
 
+## dep
+
+```(clojure)
+[thinktopic/think.query "0.2.1"]
+```
+
 ## think.model.query
 The query system is a general purpose system for querying in-memory indexes
 in addition to the datomic backing style.  The intent is to reduce the number of endpoints by providing a
@@ -36,7 +42,7 @@ Compute operators specify functionality that should be performed on each element
 (think.query/compute-operator :user/full-name
   [_ {:keys [user/first-name user/last-name]}]
   (str last-name "," first-name))
-  
+
 (query-user [:hydrate [:compute [:realize [:select :*]] :user/full-name] [:user/full-name]])
 ```
 
@@ -59,7 +65,7 @@ Then, the client could use the `transform` operator as follows:
 (query-user [:transform [:realize [:select :*]] :email-list])]
 ```
 
-Producing a result similar to the following: 
+Producing a result similar to the following:
 ```.clj
 ["alice@foo.com" "bob@foo.com"]
 ```
