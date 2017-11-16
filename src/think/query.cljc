@@ -75,7 +75,7 @@ underlying data, namely that each data item has `:resource/id` and
         (case (first selection-match)
           :and (apply set/intersection sub-query-result)
           :or  (apply set/union sub-query-result)
-          :not (apply set/difference sub-query-result (set data))))
+          :not (apply set/difference (set data) sub-query-result)))
       (if sub-index
         (sub-index selection-match)
         (filter-by-selection indexes selection data)))))
